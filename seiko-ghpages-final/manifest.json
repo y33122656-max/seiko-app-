@@ -1,0 +1,40 @@
+{
+  "id": "./",
+  "name": "SEIKO - 知識を、力に。",
+  "short_name": "SEIKO",
+  "description": "一級電気工事施工管理技士 学科試験対策アプリ",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F8F4E6",
+  "theme_color": "#2563eb",
+  "orientation": "portrait",
+  "categories": ["education"],
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "./icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./maskable-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
