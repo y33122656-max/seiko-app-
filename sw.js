@@ -1,4 +1,4 @@
-const CACHE_NAME = 'seiko-v15b';
+const CACHE_NAME = 'seiko-v17';
 const URLS_TO_CACHE = [
   './',
   './index.html',
@@ -6,22 +6,14 @@ const URLS_TO_CACHE = [
   './marubatsu_data.js',
   './question_bank.js',
   './glossary_preset.js',
-  './R5_1.jpg',
-  './R5_3.jpg',
-  './R5_5.jpg',
-  './R5_10.jpg',
-  './R5_56.jpg',
-  './R5_60.jpg',
-  './R5_61.jpg',
-  './R6_3.jpg',
-  './R6_4.jpg',
-  './R6_7.jpg',
-  './R6_28.jpg',
-  './R6_30.jpg',
-  './R6_31.jpg',
-  './R6_39.jpg',
-  './R6_57.jpg',
-  './R6_58.jpg'
+  './R3_1.jpg','./R3_2.jpg','./R3_3.jpg','./R3_9.jpg','./R3_15.jpg',
+  './R3_26.jpg','./R3_4_5.jpg','./R3_60.jpg','./R3_61.jpg','./R3_63.jpg','./R3_65.jpg',
+  './R5_1.jpg','./R5_3.jpg','./R5_5.jpg','./R5_10.jpg',
+  './R5_56.jpg','./R5_60.jpg','./R5_61.jpg',
+  './R6_3.jpg','./R6_4.jpg','./R6_7.jpg','./R6_28.jpg',
+  './R6_30.jpg','./R6_31.jpg','./R6_39.jpg','./R6_57.jpg','./R6_58.jpg',
+  './R7_1.jpg','./R7_2.jpg','./R7_3.jpg','./R7_4.jpg','./R7_5.jpg','./R7_6.jpg',
+  './R7_31.jpg','./R7_51.jpg','./R7_57.jpg'
 ];
 
 self.addEventListener('install', event => {
