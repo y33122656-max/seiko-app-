@@ -1,4 +1,4 @@
-const CACHE_NAME = 'seiko-v17';
+const CACHE_NAME = 'seiko-v19';
 const URLS_TO_CACHE = [
   './',
   './index.html',
@@ -6,6 +6,7 @@ const URLS_TO_CACHE = [
   './marubatsu_data.js',
   './question_bank.js',
   './glossary_preset.js',
+  './fig_preset.js',
   './R3_1.jpg','./R3_2.jpg','./R3_3.jpg','./R3_9.jpg','./R3_15.jpg',
   './R3_26.jpg','./R3_4_5.jpg','./R3_60.jpg','./R3_61.jpg','./R3_63.jpg','./R3_65.jpg',
   './R5_1.jpg','./R5_3.jpg','./R5_5.jpg','./R5_10.jpg',
