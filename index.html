@@ -413,7 +413,8 @@ function App() {
   const [reportEntries, setReportEntries] = useState(loadReports);
   const [diaryTab, setDiaryTab] = useState("report"); // "report" | "diary" | "history"
   const [rDate, setRDate] = useState(todayKey);
-  const [rSites, setRSites] = useState([""]);
+  const emptySite = () => ({ name: "", ky: [{ danger: "", measure: "" }] });
+  const [rSites, setRSites] = useState([emptySite()]);
   const [glossary, setGlossary] = useState(loadGlossary);
   const [glossarySearch, setGlossarySearch] = useState("");
   const [glossaryCategory, setGlossaryCategory] = useState("all");
@@ -426,7 +427,6 @@ function App() {
   const [rTimeStart, setRTimeStart] = useState("");
   const [rTimeEnd, setRTimeEnd] = useState("");
   const [rDayOff, setRDayOff] = useState(false);
-  const [rKy, setRKy] = useState([{ danger: "", measure: "" }]);
   const [rMemo, setRMemo] = useState("");
   const [dTitle, setDTitle] = useState("");
   const [dBody, setDBody] = useState("");
@@ -1178,12 +1178,16 @@ function App() {
     const nowStr = todayKey();
 
     const saveReport = () => {
-      if (!rDayOff && rSites.every(s => !s.trim()) && !rMemo.trim()) return;
-      const entry = { date: rDate, sites: rSites.filter(s => s.trim()), timeStart: rDayOff ? null : rTimeStart, timeEnd: rDayOff ? null : rTimeEnd, dayOff: rDayOff, ky: rKy.filter(k => k.danger.trim() || k.measure.trim()), memo: rMemo, savedAt: Date.now() };
+      if (!rDayOff && rSites.every(s => !s.name.trim()) && !rMemo.trim()) return;
+      const sites = rSites.filter(s => s.name.trim()).map(s => ({
+        name: s.name.trim(),
+        ky: s.ky.filter(k => k.danger.trim() || k.measure.trim())
+      }));
+      const entry = { date: rDate, sites, timeStart: rDayOff ? null : rTimeStart, timeEnd: rDayOff ? null : rTimeEnd, dayOff: rDayOff, memo: rMemo, savedAt: Date.now() };
       const updated = [...reportEntries, entry];
       setReportEntries(updated);
       saveReports(updated);
-      setRSites([""]); setRTimeStart(""); setRTimeEnd(""); setRDayOff(false); setRKy([{ danger: "", measure: "" }]); setRMemo("");
+      setRSites([emptySite()]); setRTimeStart(""); setRTimeEnd(""); setRDayOff(false); setRMemo("");
       alert("日報を保存しました");
     };
 
@@ -1225,51 +1229,54 @@ function App() {
 
           {/* タブ */}
           <div style={{ display: "flex", gap: "4px", marginBottom: "16px", background: "#e2e8f0", borderRadius: "10px", padding: "3px" }}>
-            {[["report","現場日報"],["diary","学習日記"],["history","履歴"]].map(([k,l]) => (
+            {[["report","現場日報"],["diary","学習日記"],["history","履歴"],["kyHistory","KY履歴"]].map(([k,l]) => (
               <button key={k} onClick={() => setDiaryTab(k)} style={{ flex: 1, background: diaryTab === k ? "#fff" : "transparent", border: "none", padding: "8px", borderRadius: "8px", cursor: "pointer", fontSize: "13px", fontWeight: diaryTab === k ? "bold" : "normal", color: diaryTab === k ? "#1e293b" : "#64748b" }}>{l}</button>
             ))}
           </div>
 
           {/* 日付 */}
+          {diaryTab !== "kyHistory" && diaryTab !== "history" && (
           <div style={{ marginBottom: "14px" }}>
             <label style={labelSt}>日付</label>
             <input type="date" value={rDate} onChange={e => setRDate(e.target.value)} style={inputSt} />
           </div>
+          )}
 
           {diaryTab === "report" && (
             <div>
-              {/* 現場名 */}
+              {/* 現場（KY付き） */}
               <div style={sectionSt}>
                 <label style={labelSt}>現場（複数追加可）</label>
-                {rSites.map((s, i) => (
-                  <div key={i} style={{ display: "flex", gap: "6px", marginBottom: "6px" }}>
-                    <input value={s} onChange={e => { const u = [...rSites]; u[i] = e.target.value; setRSites(u); }} placeholder={`現場${i+1}`} style={{ ...inputSt, flex: 1 }} />
-                    {rSites.length > 1 && <button onClick={() => setRSites(rSites.filter((_, j) => j !== i))} style={{ background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "6px", padding: "0 10px", cursor: "pointer", fontSize: "16px" }}>×</button>}
+                {rSites.map((site, si) => (
+                  <div key={si} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "12px", marginBottom: "10px" }}>
+                    <div style={{ display: "flex", gap: "6px", marginBottom: "8px" }}>
+                      <input value={site.name} onChange={e => { const u = [...rSites]; u[si] = { ...u[si], name: e.target.value }; setRSites(u); }} placeholder={`現場名 ${si+1}`} style={{ ...inputSt, flex: 1, fontWeight: "bold" }} />
+                      {rSites.length > 1 && <button onClick={() => setRSites(rSites.filter((_, j) => j !== si))} style={{ background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "6px", padding: "0 10px", cursor: "pointer", fontSize: "16px" }}>×</button>}
+                    </div>
+                    {/* この現場のKY */}
+                    <div style={{ paddingLeft: "4px" }}>
+                      <label style={{ fontSize: "12px", fontWeight: "bold", color: "#92400e", display: "block", marginBottom: "6px" }}>⚠️ KY（危険予知）</label>
+                      {site.ky.map((k, ki) => (
+                        <div key={ki} style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "8px 10px", marginBottom: "6px", position: "relative" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                            <span style={{ fontSize: "11px", fontWeight: "bold", color: "#b45309" }}>KY {ki + 1}</span>
+                            {site.ky.length > 1 && <button onClick={() => { const u = [...rSites]; u[si] = { ...u[si], ky: u[si].ky.filter((_, j) => j !== ki) }; setRSites(u); }} style={{ background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "4px", padding: "1px 6px", cursor: "pointer", fontSize: "12px" }}>×</button>}
+                          </div>
+                          <div style={{ marginBottom: "5px" }}>
+                            <label style={{ fontSize: "11px", color: "#b45309", display: "block", marginBottom: "2px" }}>危険</label>
+                            <input value={k.danger} onChange={e => { const u = [...rSites]; u[si] = { ...u[si], ky: u[si].ky.map((kk, j) => j === ki ? { ...kk, danger: e.target.value } : kk) }; setRSites(u); }} placeholder="どんな危険があるか" style={{ ...inputSt, background: "#fff", borderColor: "#fbbf24", fontSize: "13px" }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: "11px", color: "#047857", display: "block", marginBottom: "2px" }}>対策</label>
+                            <input value={k.measure} onChange={e => { const u = [...rSites]; u[si] = { ...u[si], ky: u[si].ky.map((kk, j) => j === ki ? { ...kk, measure: e.target.value } : kk) }; setRSites(u); }} placeholder="どう防ぐか" style={{ ...inputSt, background: "#fff", borderColor: "#34d399", fontSize: "13px" }} />
+                          </div>
+                        </div>
+                      ))}
+                      <button onClick={() => { const u = [...rSites]; u[si] = { ...u[si], ky: [...u[si].ky, { danger: "", measure: "" }] }; setRSites(u); }} style={{ background: "#fffbeb", border: "1px dashed #f59e0b", color: "#92400e", padding: "5px 10px", borderRadius: "6px", cursor: "pointer", fontSize: "11px", width: "100%" }}>＋ KYを追加</button>
+                    </div>
                   </div>
                 ))}
-                <button onClick={() => setRSites([...rSites, ""])} style={{ background: "#f1f5f9", border: "1px dashed #94a3b8", color: "#64748b", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px", width: "100%" }}>＋ 現場を追加</button>
-              </div>
-
-              {/* KY（危険予知）— 現場名の直下 */}
-              <div style={sectionSt}>
-                <label style={labelSt}>⚠️ KY（危険予知）</label>
-                {rKy.map((k, i) => (
-                  <div key={i} style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "10px 12px", marginBottom: "8px", position: "relative" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                      <span style={{ fontSize: "12px", fontWeight: "bold", color: "#92400e" }}>KY {i + 1}</span>
-                      {rKy.length > 1 && <button onClick={() => setRKy(rKy.filter((_, j) => j !== i))} style={{ background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "6px", padding: "2px 8px", cursor: "pointer", fontSize: "13px" }}>×</button>}
-                    </div>
-                    <div style={{ marginBottom: "6px" }}>
-                      <label style={{ fontSize: "11px", color: "#b45309", fontWeight: "bold", display: "block", marginBottom: "3px" }}>危険（どんな危険があるか）</label>
-                      <input value={k.danger} onChange={e => { const u = [...rKy]; u[i] = { ...u[i], danger: e.target.value }; setRKy(u); }} placeholder="例：高所作業で転落の恐れ" style={{ ...inputSt, background: "#fff", borderColor: "#fbbf24" }} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: "11px", color: "#047857", fontWeight: "bold", display: "block", marginBottom: "3px" }}>対策（どう防ぐか）</label>
-                      <input value={k.measure} onChange={e => { const u = [...rKy]; u[i] = { ...u[i], measure: e.target.value }; setRKy(u); }} placeholder="例：安全帯を使用し親綱を設置" style={{ ...inputSt, background: "#fff", borderColor: "#34d399" }} />
-                    </div>
-                  </div>
-                ))}
-                <button onClick={() => setRKy([...rKy, { danger: "", measure: "" }])} style={{ background: "#fffbeb", border: "1px dashed #f59e0b", color: "#92400e", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px", width: "100%" }}>＋ KYを追加</button>
+                <button onClick={() => setRSites([...rSites, emptySite()])} style={{ background: "#f1f5f9", border: "1px dashed #94a3b8", color: "#64748b", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px", width: "100%" }}>＋ 現場を追加</button>
               </div>
 
               {/* 勤務時間 */}
@@ -1335,26 +1342,28 @@ function App() {
                     <div style={{ fontSize: "13px", lineHeight: "1.7" }}>
                       {entry.dayOff ? <div style={{ color: "#64748b" }}>🏠 出勤なし</div> : (
                         <>
-                          {entry.sites?.length > 0 && <div>📍 {entry.sites.join("、")}</div>}
-                          {(entry.timeStart || entry.timeEnd) && <div>⏰ {entry.timeStart || "?"} 〜 {entry.timeEnd || "?"}</div>}
-                        </>
-                      )}
-                      {entry.ky?.length > 0 && (
-                        <div style={{ marginTop: "6px" }}>
-                          {entry.ky.map((k, ki) => (
-                            <div key={ki} style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "6px", padding: "6px 10px", marginBottom: "4px", fontSize: "12px" }}>
-                              {typeof k === "string" ? (
-                                <div>⚠️ {k}</div>
+                          {entry.sites?.length > 0 && entry.sites.map((s, si) => (
+                            <div key={si} style={{ marginBottom: "6px" }}>
+                              {typeof s === "string" ? (
+                                <div>📍 {s}</div>
                               ) : (
                                 <>
-                                  {k.danger && <div style={{ color: "#b45309" }}>⚠️ 危険：{k.danger}</div>}
-                                  {k.measure && <div style={{ color: "#047857" }}>🛡 対策：{k.measure}</div>}
+                                  <div style={{ fontWeight: "bold" }}>📍 {s.name}</div>
+                                  {s.ky?.length > 0 && s.ky.map((k, ki) => (
+                                    <div key={ki} style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "6px", padding: "4px 8px", marginTop: "3px", marginLeft: "16px", fontSize: "12px" }}>
+                                      {k.danger && <div style={{ color: "#b45309" }}>⚠️ 危険：{k.danger}</div>}
+                                      {k.measure && <div style={{ color: "#047857" }}>🛡 対策：{k.measure}</div>}
+                                    </div>
+                                  ))}
                                 </>
                               )}
                             </div>
                           ))}
-                        </div>
+                          {(entry.timeStart || entry.timeEnd) && <div>⏰ {entry.timeStart || "?"} 〜 {entry.timeEnd || "?"}</div>}
+                        </>
                       )}
+                      {/* 旧形式のKY（文字列配列）互換 */}
+                      {entry.ky?.length > 0 && <div style={{ marginTop: "4px" }}>⚠️ KY: {entry.ky.map(k => typeof k === "string" ? k : [k.danger, k.measure].filter(Boolean).join("→")).join(" / ")}</div>}
                       {entry.memo && <div style={{ marginTop: "4px", color: "#475569" }}>{entry.memo}</div>}
                     </div>
                   ) : (
@@ -1365,6 +1374,59 @@ function App() {
                   )}
                 </div>
               ))}
+            </div>
+          )}
+
+          {diaryTab === "kyHistory" && (
+            <div>
+              {(() => {
+                const kyList = [];
+                reportEntries.forEach((r, ri) => {
+                  if (r.dayOff) return;
+                  // 新形式: sites[].ky[]
+                  if (r.sites?.length > 0) {
+                    r.sites.forEach(s => {
+                      if (s.ky?.length > 0) {
+                        s.ky.forEach(k => {
+                          if (k.danger || k.measure) {
+                            kyList.push({ date: r.date, site: typeof s === "string" ? s : s.name, danger: k.danger, measure: k.measure, savedAt: r.savedAt });
+                          }
+                        });
+                      }
+                    });
+                  }
+                  // 旧形式: entry.ky[]
+                  if (r.ky?.length > 0) {
+                    r.ky.forEach(k => {
+                      if (typeof k === "string") {
+                        kyList.push({ date: r.date, site: "", danger: k, measure: "", savedAt: r.savedAt });
+                      } else if (k.danger || k.measure) {
+                        kyList.push({ date: r.date, site: "", danger: k.danger, measure: k.measure, savedAt: r.savedAt });
+                      }
+                    });
+                  }
+                });
+                kyList.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+
+                if (kyList.length === 0) {
+                  return <div style={{ textAlign: "center", color: "#94a3b8", padding: "40px 0" }}>KY記録がありません</div>;
+                }
+                return (
+                  <>
+                    <div style={{ fontSize: "12px", color: "#94a3b8", marginBottom: "10px" }}>全 {kyList.length} 件のKY記録</div>
+                    {kyList.map((ky, i) => (
+                      <div key={i} style={{ background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: "10px", padding: "12px 14px", marginBottom: "8px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                          <span style={{ fontSize: "13px", color: "#92400e", fontWeight: "bold" }}>{ky.date}</span>
+                          {ky.site && <span style={{ fontSize: "12px", color: "#78716c", background: "#f5f5f4", padding: "1px 8px", borderRadius: "99px" }}>📍 {ky.site}</span>}
+                        </div>
+                        {ky.danger && <div style={{ fontSize: "13px", color: "#b45309", marginBottom: "3px" }}>⚠️ 危険：{ky.danger}</div>}
+                        {ky.measure && <div style={{ fontSize: "13px", color: "#047857" }}>🛡 対策：{ky.measure}</div>}
+                      </div>
+                    ))}
+                  </>
+                );
+              })()}
             </div>
           )}
         </div>
