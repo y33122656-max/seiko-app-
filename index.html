@@ -22,6 +22,13 @@
   <div id="root"></div>
 <script src="fig_preset.js"></script>
   <script src="marubatsu_data.js"></script>
+<script src="qb_r01.js"></script>
+<script src="qb_r02.js"></script>
+<script src="qb_r03.js"></script>
+<script src="qb_r04.js"></script>
+<script src="qb_r05.js"></script>
+<script src="qb_r06.js"></script>
+<script src="qb_r07.js"></script>
 <script src="question_bank.js"></script>
 <script src="glossary_preset.js"></script>
   <script type="text/babel">
@@ -419,7 +426,7 @@ function App() {
   const [rTimeStart, setRTimeStart] = useState("");
   const [rTimeEnd, setRTimeEnd] = useState("");
   const [rDayOff, setRDayOff] = useState(false);
-  const [rKy, setRKy] = useState([""]);
+  const [rKy, setRKy] = useState([{ danger: "", measure: "" }]);
   const [rMemo, setRMemo] = useState("");
   const [dTitle, setDTitle] = useState("");
   const [dBody, setDBody] = useState("");
@@ -1172,11 +1179,11 @@ function App() {
 
     const saveReport = () => {
       if (!rDayOff && rSites.every(s => !s.trim()) && !rMemo.trim()) return;
-      const entry = { date: rDate, sites: rSites.filter(s => s.trim()), timeStart: rDayOff ? null : rTimeStart, timeEnd: rDayOff ? null : rTimeEnd, dayOff: rDayOff, ky: rKy.filter(k => k.trim()), memo: rMemo, savedAt: Date.now() };
+      const entry = { date: rDate, sites: rSites.filter(s => s.trim()), timeStart: rDayOff ? null : rTimeStart, timeEnd: rDayOff ? null : rTimeEnd, dayOff: rDayOff, ky: rKy.filter(k => k.danger.trim() || k.measure.trim()), memo: rMemo, savedAt: Date.now() };
       const updated = [...reportEntries, entry];
       setReportEntries(updated);
       saveReports(updated);
-      setRSites([""]); setRTimeStart(""); setRTimeEnd(""); setRDayOff(false); setRKy([""]); setRMemo("");
+      setRSites([""]); setRTimeStart(""); setRTimeEnd(""); setRDayOff(false); setRKy([{ danger: "", measure: "" }]); setRMemo("");
       alert("日報を保存しました");
     };
 
@@ -1243,6 +1250,28 @@ function App() {
                 <button onClick={() => setRSites([...rSites, ""])} style={{ background: "#f1f5f9", border: "1px dashed #94a3b8", color: "#64748b", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px", width: "100%" }}>＋ 現場を追加</button>
               </div>
 
+              {/* KY（危険予知）— 現場名の直下 */}
+              <div style={sectionSt}>
+                <label style={labelSt}>⚠️ KY（危険予知）</label>
+                {rKy.map((k, i) => (
+                  <div key={i} style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "10px 12px", marginBottom: "8px", position: "relative" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                      <span style={{ fontSize: "12px", fontWeight: "bold", color: "#92400e" }}>KY {i + 1}</span>
+                      {rKy.length > 1 && <button onClick={() => setRKy(rKy.filter((_, j) => j !== i))} style={{ background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "6px", padding: "2px 8px", cursor: "pointer", fontSize: "13px" }}>×</button>}
+                    </div>
+                    <div style={{ marginBottom: "6px" }}>
+                      <label style={{ fontSize: "11px", color: "#b45309", fontWeight: "bold", display: "block", marginBottom: "3px" }}>危険（どんな危険があるか）</label>
+                      <input value={k.danger} onChange={e => { const u = [...rKy]; u[i] = { ...u[i], danger: e.target.value }; setRKy(u); }} placeholder="例：高所作業で転落の恐れ" style={{ ...inputSt, background: "#fff", borderColor: "#fbbf24" }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: "11px", color: "#047857", fontWeight: "bold", display: "block", marginBottom: "3px" }}>対策（どう防ぐか）</label>
+                      <input value={k.measure} onChange={e => { const u = [...rKy]; u[i] = { ...u[i], measure: e.target.value }; setRKy(u); }} placeholder="例：安全帯を使用し親綱を設置" style={{ ...inputSt, background: "#fff", borderColor: "#34d399" }} />
+                    </div>
+                  </div>
+                ))}
+                <button onClick={() => setRKy([...rKy, { danger: "", measure: "" }])} style={{ background: "#fffbeb", border: "1px dashed #f59e0b", color: "#92400e", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px", width: "100%" }}>＋ KYを追加</button>
+              </div>
+
               {/* 勤務時間 */}
               <div style={sectionSt}>
                 <label style={labelSt}>勤務時間</label>
@@ -1259,17 +1288,6 @@ function App() {
                 )}
               </div>
 
-              {/* KY */}
-              <div style={sectionSt}>
-                <label style={labelSt}>KY（危険予知）</label>
-                {rKy.map((k, i) => (
-                  <div key={i} style={{ display: "flex", gap: "6px", marginBottom: "6px" }}>
-                    <input value={k} onChange={e => { const u = [...rKy]; u[i] = e.target.value; setRKy(u); }} placeholder={`KY ${i+1}`} style={{ ...inputSt, flex: 1 }} />
-                    {rKy.length > 1 && <button onClick={() => setRKy(rKy.filter((_, j) => j !== i))} style={{ background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "6px", padding: "0 10px", cursor: "pointer", fontSize: "16px" }}>×</button>}
-                  </div>
-                ))}
-                <button onClick={() => setRKy([...rKy, ""])} style={{ background: "#f1f5f9", border: "1px dashed #94a3b8", color: "#64748b", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px", width: "100%" }}>＋ KYを追加</button>
-              </div>
 
               {/* 仕事メモ */}
               <div style={sectionSt}>
@@ -1321,7 +1339,22 @@ function App() {
                           {(entry.timeStart || entry.timeEnd) && <div>⏰ {entry.timeStart || "?"} 〜 {entry.timeEnd || "?"}</div>}
                         </>
                       )}
-                      {entry.ky?.length > 0 && <div style={{ marginTop: "4px" }}>⚠️ KY: {entry.ky.join(" / ")}</div>}
+                      {entry.ky?.length > 0 && (
+                        <div style={{ marginTop: "6px" }}>
+                          {entry.ky.map((k, ki) => (
+                            <div key={ki} style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "6px", padding: "6px 10px", marginBottom: "4px", fontSize: "12px" }}>
+                              {typeof k === "string" ? (
+                                <div>⚠️ {k}</div>
+                              ) : (
+                                <>
+                                  {k.danger && <div style={{ color: "#b45309" }}>⚠️ 危険：{k.danger}</div>}
+                                  {k.measure && <div style={{ color: "#047857" }}>🛡 対策：{k.measure}</div>}
+                                </>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {entry.memo && <div style={{ marginTop: "4px", color: "#475569" }}>{entry.memo}</div>}
                     </div>
                   ) : (
