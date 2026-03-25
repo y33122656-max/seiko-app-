@@ -822,18 +822,19 @@ function App() {
     const cats = {};
     YEAR_ORDER.forEach(yr => {
       Object.values(QUESTION_BANK[yr].questions).forEach(q => {
-        const cat = q.category;
-        if (!cats[cat]) cats[cat] = { correct: 0, total: 0 };
+        const cat = q.category || "その他";
+        if (!cats[cat]) cats[cat] = { correct: 0, answered: 0, total: 0 };
+        cats[cat].total++;
         const v = progress[`${yr}_${q.no}`];
         if (v !== undefined) {
-          cats[cat].total++;
+          cats[cat].answered++;
           if (v === true) cats[cat].correct++;
         }
       });
     });
     return Object.entries(cats)
-      .filter(([, v]) => v.total >= 3)
-      .map(([cat, v]) => ({ cat, pct: Math.round(v.correct / v.total * 100), total: v.total, correct: v.correct }))
+      .filter(([, v]) => v.answered >= 1)
+      .map(([cat, v]) => ({ cat, pct: Math.round(v.correct / v.answered * 100), answered: v.answered, correct: v.correct, total: v.total }))
       .sort((a, b) => a.pct - b.pct);
   }
 
@@ -1763,41 +1764,25 @@ function App() {
           const analysis = getAnalysis();
           if (analysis.length === 0) return (
             <div style={{ background: "#ffffff", borderRadius: "10px", padding: "14px", marginBottom: "20px", color: "#94a3b8", fontSize: "13px", textAlign: "center" }}>
-              📊 3問以上回答するとカテゴリ別分析が表示されます
+              📊 問題を回答するとカテゴリ別分析が表示されます
             </div>
           );
-          const weak = analysis.slice(0, 3);
-          const strong = [...analysis].sort((a,b) => b.pct - a.pct).slice(0, 3);
           return (
             <div style={{ background: "#ffffff", borderRadius: "10px", padding: "14px", marginBottom: "20px" }}>
-              <div style={{ fontWeight: "bold", fontSize: "13px", color: "#0f172a", marginBottom: "12px" }}>📊 得意・不得意分析</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                <div>
-                  <div style={{ fontSize: "11px", color: "#dc2626", fontWeight: "bold", marginBottom: "6px" }}>⚠ 苦手カテゴリ</div>
-                  {weak.map(({ cat, pct, total }) => (
-                    <div key={cat} style={{ marginBottom: "6px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#475569", marginBottom: "2px" }}>
-                        <span>{cat}</span><span style={{ color: "#dc2626", fontWeight: "bold" }}>{pct}%</span>
+              <div style={{ fontWeight: "bold", fontSize: "13px", color: "#0f172a", marginBottom: "12px" }}>📊 カテゴリ別 正解率（正解率が低い順）</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                {analysis.map(({ cat, pct, correct, answered, total }) => (
+                  <div key={cat}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span style={{ fontSize: "12px", color: "#1e293b", width: "120px", flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat}</span>
+                      <div style={{ flex: 1, background: "#e2e8f0", borderRadius: "3px", height: "6px" }}>
+                        <div style={{ background: pct >= 70 ? "#16a34a" : pct >= 40 ? "#f59e0b" : "#dc2626", height: "100%", borderRadius: "3px", width: `${pct}%`, transition: "width 0.3s" }} />
                       </div>
-                      <div style={{ background: "#fee2e2", borderRadius: "3px", height: "4px" }}>
-                        <div style={{ background: "#dc2626", height: "100%", borderRadius: "3px", width: `${pct}%` }} />
-                      </div>
+                      <span style={{ fontSize: "12px", color: pct >= 70 ? "#16a34a" : pct >= 40 ? "#f59e0b" : "#dc2626", fontWeight: "bold", width: "36px", textAlign: "right", flexShrink: 0 }}>{pct}%</span>
                     </div>
-                  ))}
-                </div>
-                <div>
-                  <div style={{ fontSize: "11px", color: "#16a34a", fontWeight: "bold", marginBottom: "6px" }}>✨ 得意カテゴリ</div>
-                  {strong.map(({ cat, pct }) => (
-                    <div key={cat} style={{ marginBottom: "6px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#475569", marginBottom: "2px" }}>
-                        <span>{cat}</span><span style={{ color: "#16a34a", fontWeight: "bold" }}>{pct}%</span>
-                      </div>
-                      <div style={{ background: "#dcfce7", borderRadius: "3px", height: "4px" }}>
-                        <div style={{ background: "#16a34a", height: "100%", borderRadius: "3px", width: `${pct}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    <div style={{ fontSize: "10px", color: "#94a3b8", textAlign: "right" }}>{correct}/{answered}問正解（全{total}問中{answered}問回答済）</div>
+                  </div>
+                ))}
               </div>
             </div>
           );
