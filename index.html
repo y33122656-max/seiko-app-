@@ -413,7 +413,7 @@ function App() {
   const [reportEntries, setReportEntries] = useState(loadReports);
   const [diaryTab, setDiaryTab] = useState("report"); // "report" | "diary" | "history"
   const [rDate, setRDate] = useState(todayKey);
-  const emptySite = () => ({ name: "", ky: [{ danger: "", measure: "" }] });
+  const emptySite = () => ({ name: "", ky: [{ danger: "", measures: [""] }] });
   const [rSites, setRSites] = useState([emptySite()]);
   const [glossary, setGlossary] = useState(loadGlossary);
   const [glossarySearch, setGlossarySearch] = useState("");
@@ -1181,7 +1181,10 @@ function App() {
       if (!rDayOff && rSites.every(s => !s.name.trim()) && !rMemo.trim()) return;
       const sites = rSites.filter(s => s.name.trim()).map(s => ({
         name: s.name.trim(),
-        ky: s.ky.filter(k => k.danger.trim() || k.measure.trim())
+        ky: s.ky.filter(k => k.danger.trim() || (k.measures || [k.measure || ""]).some(m => m.trim())).map(k => ({
+          danger: k.danger.trim(),
+          measures: (k.measures || [k.measure || ""]).filter(m => m.trim())
+        }))
       }));
       const entry = { date: rDate, sites, timeStart: rDayOff ? null : rTimeStart, timeEnd: rDayOff ? null : rTimeEnd, dayOff: rDayOff, memo: rMemo, savedAt: Date.now() };
       const updated = [...reportEntries, entry];
@@ -1235,7 +1238,7 @@ function App() {
           </div>
 
           {/* 日付 */}
-          {diaryTab !== "kyHistory" && diaryTab !== "history" && (
+          {(diaryTab === "report" || diaryTab === "diary") && (
           <div style={{ marginBottom: "14px" }}>
             <label style={labelSt}>日付</label>
             <input type="date" value={rDate} onChange={e => setRDate(e.target.value)} style={inputSt} />
@@ -1259,20 +1262,26 @@ function App() {
                       {site.ky.map((k, ki) => (
                         <div key={ki} style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "8px 10px", marginBottom: "6px", position: "relative" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                            <span style={{ fontSize: "11px", fontWeight: "bold", color: "#b45309" }}>KY {ki + 1}</span>
+                            <span style={{ fontSize: "11px", fontWeight: "bold", color: "#b45309" }}>危険 {ki + 1}</span>
                             {site.ky.length > 1 && <button onClick={() => { const u = [...rSites]; u[si] = { ...u[si], ky: u[si].ky.filter((_, j) => j !== ki) }; setRSites(u); }} style={{ background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "4px", padding: "1px 6px", cursor: "pointer", fontSize: "12px" }}>×</button>}
                           </div>
-                          <div style={{ marginBottom: "5px" }}>
-                            <label style={{ fontSize: "11px", color: "#b45309", display: "block", marginBottom: "2px" }}>危険</label>
-                            <input value={k.danger} onChange={e => { const u = [...rSites]; u[si] = { ...u[si], ky: u[si].ky.map((kk, j) => j === ki ? { ...kk, danger: e.target.value } : kk) }; setRSites(u); }} placeholder="どんな危険があるか" style={{ ...inputSt, background: "#fff", borderColor: "#fbbf24", fontSize: "13px" }} />
+                          <div style={{ marginBottom: "6px" }}>
+                            <label style={{ fontSize: "11px", color: "#b45309", display: "block", marginBottom: "2px" }}>予測される危険</label>
+                            <input value={k.danger} onChange={e => { const u = [...rSites]; u[si] = { ...u[si], ky: u[si].ky.map((kk, j) => j === ki ? { ...kk, danger: e.target.value } : kk) }; setRSites(u); }} placeholder="〜して〜になる" style={{ ...inputSt, background: "#fff", borderColor: "#fbbf24", fontSize: "13px" }} />
                           </div>
                           <div>
-                            <label style={{ fontSize: "11px", color: "#047857", display: "block", marginBottom: "2px" }}>対策</label>
-                            <input value={k.measure} onChange={e => { const u = [...rSites]; u[si] = { ...u[si], ky: u[si].ky.map((kk, j) => j === ki ? { ...kk, measure: e.target.value } : kk) }; setRSites(u); }} placeholder="どう防ぐか" style={{ ...inputSt, background: "#fff", borderColor: "#34d399", fontSize: "13px" }} />
+                            <label style={{ fontSize: "11px", color: "#047857", display: "block", marginBottom: "2px" }}>対策（私達はこうする）</label>
+                            {(k.measures || [k.measure || ""]).map((m, mi) => (
+                              <div key={mi} style={{ display: "flex", gap: "4px", marginBottom: "4px" }}>
+                                <input value={m} onChange={e => { const u = [...rSites]; const ms = [...(u[si].ky[ki].measures || [u[si].ky[ki].measure || ""])]; ms[mi] = e.target.value; u[si] = { ...u[si], ky: u[si].ky.map((kk, j) => j === ki ? { ...kk, measures: ms } : kk) }; setRSites(u); }} placeholder={`対策 ${mi+1}`} style={{ ...inputSt, background: "#fff", borderColor: "#34d399", fontSize: "13px", flex: 1 }} />
+                                {(k.measures || [k.measure || ""]).length > 1 && <button onClick={() => { const u = [...rSites]; const ms = [...(u[si].ky[ki].measures || [])]; ms.splice(mi, 1); u[si] = { ...u[si], ky: u[si].ky.map((kk, j) => j === ki ? { ...kk, measures: ms } : kk) }; setRSites(u); }} style={{ background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "4px", padding: "0 6px", cursor: "pointer", fontSize: "12px", flexShrink: 0 }}>×</button>}
+                              </div>
+                            ))}
+                            <button onClick={() => { const u = [...rSites]; const ms = [...(u[si].ky[ki].measures || [u[si].ky[ki].measure || ""]), ""]; u[si] = { ...u[si], ky: u[si].ky.map((kk, j) => j === ki ? { ...kk, measures: ms } : kk) }; setRSites(u); }} style={{ background: "#ecfdf5", border: "1px dashed #34d399", color: "#047857", padding: "3px 8px", borderRadius: "4px", cursor: "pointer", fontSize: "11px", width: "100%" }}>＋ 対策を追加</button>
                           </div>
                         </div>
                       ))}
-                      <button onClick={() => { const u = [...rSites]; u[si] = { ...u[si], ky: [...u[si].ky, { danger: "", measure: "" }] }; setRSites(u); }} style={{ background: "#fffbeb", border: "1px dashed #f59e0b", color: "#92400e", padding: "5px 10px", borderRadius: "6px", cursor: "pointer", fontSize: "11px", width: "100%" }}>＋ KYを追加</button>
+                      <button onClick={() => { const u = [...rSites]; u[si] = { ...u[si], ky: [...u[si].ky, { danger: "", measures: [""] }] }; setRSites(u); }} style={{ background: "#fffbeb", border: "1px dashed #f59e0b", color: "#92400e", padding: "5px 10px", borderRadius: "6px", cursor: "pointer", fontSize: "11px", width: "100%" }}>＋ 危険項目を追加</button>
                     </div>
                   </div>
                 ))}
@@ -1352,7 +1361,9 @@ function App() {
                                   {s.ky?.length > 0 && s.ky.map((k, ki) => (
                                     <div key={ki} style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "6px", padding: "4px 8px", marginTop: "3px", marginLeft: "16px", fontSize: "12px" }}>
                                       {k.danger && <div style={{ color: "#b45309" }}>⚠️ 危険：{k.danger}</div>}
-                                      {k.measure && <div style={{ color: "#047857" }}>🛡 対策：{k.measure}</div>}
+                                      {k.measures ? k.measures.map((m, mi) => (
+                                        <div key={mi} style={{ color: "#047857" }}>🛡 対策{k.measures.length > 1 ? ` ${mi+1}` : ""}：{m}</div>
+                                      )) : k.measure ? <div style={{ color: "#047857" }}>🛡 対策：{k.measure}</div> : null}
                                     </div>
                                   ))}
                                 </>
@@ -1381,27 +1392,26 @@ function App() {
             <div>
               {(() => {
                 const kyList = [];
-                reportEntries.forEach((r, ri) => {
+                reportEntries.forEach(r => {
                   if (r.dayOff) return;
-                  // 新形式: sites[].ky[]
                   if (r.sites?.length > 0) {
                     r.sites.forEach(s => {
-                      if (s.ky?.length > 0) {
+                      const siteName = typeof s === "string" ? s : s.name;
+                      if (typeof s !== "string" && s.ky?.length > 0) {
                         s.ky.forEach(k => {
-                          if (k.danger || k.measure) {
-                            kyList.push({ date: r.date, site: typeof s === "string" ? s : s.name, danger: k.danger, measure: k.measure, savedAt: r.savedAt });
+                          if (k.danger || (k.measures && k.measures.length > 0) || k.measure) {
+                            kyList.push({ date: r.date, site: siteName, danger: k.danger || "", measures: k.measures || (k.measure ? [k.measure] : []), savedAt: r.savedAt });
                           }
                         });
                       }
                     });
                   }
-                  // 旧形式: entry.ky[]
                   if (r.ky?.length > 0) {
                     r.ky.forEach(k => {
                       if (typeof k === "string") {
-                        kyList.push({ date: r.date, site: "", danger: k, measure: "", savedAt: r.savedAt });
-                      } else if (k.danger || k.measure) {
-                        kyList.push({ date: r.date, site: "", danger: k.danger, measure: k.measure, savedAt: r.savedAt });
+                        kyList.push({ date: r.date, site: "", danger: k, measures: [], savedAt: r.savedAt });
+                      } else if (k.danger || k.measure || (k.measures && k.measures.length > 0)) {
+                        kyList.push({ date: r.date, site: "", danger: k.danger || "", measures: k.measures || (k.measure ? [k.measure] : []), savedAt: r.savedAt });
                       }
                     });
                   }
@@ -1420,8 +1430,10 @@ function App() {
                           <span style={{ fontSize: "13px", color: "#92400e", fontWeight: "bold" }}>{ky.date}</span>
                           {ky.site && <span style={{ fontSize: "12px", color: "#78716c", background: "#f5f5f4", padding: "1px 8px", borderRadius: "99px" }}>📍 {ky.site}</span>}
                         </div>
-                        {ky.danger && <div style={{ fontSize: "13px", color: "#b45309", marginBottom: "3px" }}>⚠️ 危険：{ky.danger}</div>}
-                        {ky.measure && <div style={{ fontSize: "13px", color: "#047857" }}>🛡 対策：{ky.measure}</div>}
+                        {ky.danger && <div style={{ fontSize: "13px", color: "#b45309", marginBottom: "3px" }}>⚠️ {ky.danger}</div>}
+                        {ky.measures.length > 0 && ky.measures.map((m, mi) => (
+                          <div key={mi} style={{ fontSize: "13px", color: "#047857" }}>🛡 {ky.measures.length > 1 ? `対策${mi+1}：` : ""}{m}</div>
+                        ))}
                       </div>
                     ))}
                   </>
