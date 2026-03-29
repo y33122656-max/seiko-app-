@@ -429,6 +429,8 @@ function App() {
   const [calcOpen, setCalcOpen] = useState(false);
   const [calcExpr, setCalcExpr] = useState("");
   const [calcResult, setCalcResult] = useState("");
+  const [calcResultFrac, setCalcResultFrac] = useState(null); // {n,d} or null
+  const [calcShowDecimal, setCalcShowDecimal] = useState(false); // S⇔D toggle
   const [calcHistory, setCalcHistory] = useState([]);
   const [calcDeg, setCalcDeg] = useState(true);
   const [calcPos, setCalcPos] = useState({ x: 20, y: 80 });
@@ -438,13 +440,120 @@ function App() {
   const [calcMemory, setCalcMemory] = useState({ A:0, B:0, C:0, D:0, M:0 });
   const [calcShowMem, setCalcShowMem] = useState(false);
   const [calcLastAns, setCalcLastAns] = useState("0");
+  const [calcFracMode, setCalcFracMode] = useState(false); // 分数入力中
+  const [calcFracNum, setCalcFracNum] = useState(""); // 分子
+  const [calcFracDen, setCalcFracDen] = useState(""); // 分母
+  const [calcFracField, setCalcFracField] = useState("num"); // "num" or "den"
+  const [calcMixedMode, setCalcMixedMode] = useState(false); // 帯分数モード
+  const [calcMixedWhole, setCalcMixedWhole] = useState(""); // 帯分数整数部
   const dragRef = useRef(null);
   const dragStartRef = useRef(null);
   const isDraggingRef = useRef(false);
 
+  // ── 分数ユーティリティ ──
+  function gcd(a, b) { a = Math.abs(a); b = Math.abs(b); while (b) { [a, b] = [b, a % b]; } return a; }
+  function toFraction(decimal) {
+    if (!isFinite(decimal) || Number.isInteger(decimal)) return null;
+    // 分数変換: 精度12桁まで
+    const sign = decimal < 0 ? -1 : 1;
+    const abs = Math.abs(decimal);
+    // 連分数展開で近似
+    let h1 = 1, h2 = 0, k1 = 0, k2 = 1;
+    let x = abs;
+    for (let i = 0; i < 30; i++) {
+      const a = Math.floor(x);
+      const h = a * h1 + h2;
+      const k = a * k1 + k2;
+      if (k > 1e9) break;
+      h2 = h1; h1 = h; k2 = k1; k1 = k;
+      const rem = x - a;
+      if (Math.abs(rem) < 1e-12) break;
+      x = 1 / rem;
+    }
+    if (k1 === 0 || k1 === 1) return null;
+    // 検証
+    if (Math.abs(sign * h1 / k1 - decimal) > 1e-10) return null;
+    const g = gcd(h1, k1);
+    const n = sign * (h1 / g);
+    const d = k1 / g;
+    if (d > 9999 || d <= 1) return null; // 分母が大きすぎるか1なら無意味
+    return { n: Math.round(n), d: Math.round(d) };
+  }
+  function toMixedFrac(frac) {
+    if (!frac || frac.d <= 0) return null;
+    const sign = frac.n < 0 ? -1 : 1;
+    const absN = Math.abs(frac.n);
+    if (absN < frac.d) return null; // 真分数なので帯分数不要
+    const whole = Math.floor(absN / frac.d);
+    const rem = absN % frac.d;
+    if (rem === 0) return null;
+    return { whole: sign * whole, n: rem, d: frac.d };
+  }
+
+  // ── 分数レンダリングコンポーネント ──
+  const FracDisplay = ({ n, d, style }) => (
+    <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", verticalAlign: "middle", margin: "0 3px", ...style }}>
+      <span style={{ fontSize: "0.7em", lineHeight: 1.1, padding: "0 3px" }}>{n}</span>
+      <span style={{ width: "100%", height: "1.5px", background: "currentColor", minWidth: "14px" }}></span>
+      <span style={{ fontSize: "0.7em", lineHeight: 1.1, padding: "0 3px" }}>{d}</span>
+    </span>
+  );
+  const MixedFracDisplay = ({ whole, n, d, style }) => (
+    <span style={{ display: "inline-flex", alignItems: "center", verticalAlign: "middle", ...style }}>
+      <span>{whole}</span>
+      <FracDisplay n={n} d={d} />
+    </span>
+  );
+
+  // 分数入力の確定 → 式に挿入
+  function calcFracCommit() {
+    if (!calcFracNum && !calcFracDen) { setCalcFracMode(false); setCalcMixedMode(false); return; }
+    const num = calcFracNum || "0";
+    const den = calcFracDen || "1";
+    let fracStr;
+    if (calcMixedMode && calcMixedWhole) {
+      // 帯分数: whole + num/den
+      fracStr = "(" + calcMixedWhole + "+(" + num + ")/(" + den + "))";
+    } else {
+      fracStr = "((" + num + ")/(" + den + "))";
+    }
+    setCalcExpr(prev => prev + fracStr);
+    setCalcFracMode(false); setCalcMixedMode(false);
+    setCalcFracNum(""); setCalcFracDen(""); setCalcMixedWhole(""); setCalcFracField("num");
+  }
+
+  // 分数入力中のキー処理
+  function calcFracAppend(s) {
+    if (calcMixedMode && calcFracField === "whole") {
+      setCalcMixedWhole(prev => prev + s);
+    } else if (calcFracField === "num") {
+      setCalcFracNum(prev => prev + s);
+    } else {
+      setCalcFracDen(prev => prev + s);
+    }
+  }
+  function calcFracBackspace() {
+    if (calcMixedMode && calcFracField === "whole") {
+      setCalcMixedWhole(prev => prev.slice(0, -1));
+    } else if (calcFracField === "num") {
+      setCalcFracNum(prev => prev.slice(0, -1));
+    } else {
+      setCalcFracDen(prev => prev.slice(0, -1));
+    }
+  }
+  function calcFracNextField() {
+    if (calcMixedMode) {
+      if (calcFracField === "whole") setCalcFracField("num");
+      else if (calcFracField === "num") setCalcFracField("den");
+      else calcFracCommit();
+    } else {
+      if (calcFracField === "num") setCalcFracField("den");
+      else calcFracCommit();
+    }
+  }
+
   // ── ドラッグ処理（しきい値つき・タップ/ドラッグ明確分離） ──
   function calcDragStart(e) {
-    // ボタン要素のドラッグを防ぐ
     if (e.target.tagName === "BUTTON") return;
     e.preventDefault();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -454,7 +563,6 @@ function App() {
     const origPos = { ...calcPos };
     isDraggingRef.current = false;
     const THRESHOLD = 5;
-
     function onMove(ev) {
       const cx = ev.touches ? ev.touches[0].clientX : ev.clientX;
       const cy = ev.touches ? ev.touches[0].clientY : ev.clientY;
@@ -480,36 +588,32 @@ function App() {
   }
 
   // 数式に文字追加
-  function calcAppend(s) { setCalcExpr(prev => prev + s); setCalcShift(false); setCalcHyp(false); }
+  function calcAppend(s) {
+    if (calcFracMode) { calcFracAppend(s); return; }
+    setCalcExpr(prev => prev + s); setCalcShift(false); setCalcHyp(false);
+  }
 
   // 数式評価（カシオ準拠の変換ロジック）
   function calcEval() {
+    if (calcFracMode) { calcFracCommit(); return; }
     if (!calcExpr.trim()) return;
     try {
       let expr = calcExpr;
       expr = expr.replace(/×/g, "*").replace(/÷/g, "/");
       expr = expr.replace(/Ans/g, "(" + calcLastAns + ")");
-      // 変数メモリ参照
       Object.keys(calcMemory).forEach(k => {
         expr = expr.replace(new RegExp("\\b" + k + "\\b", "g"), "(" + calcMemory[k] + ")");
       });
-      // 階乗: 数値!をfactorial(数値)に
       expr = expr.replace(/(\d+(?:\.\d+)?)\s*!/g, "factorial($1)");
-      // nPr → permutations(n,r)  nCr → combinations(n,r)
       expr = expr.replace(/(\d+)\s*P\s*(\d+)/g, "permutations($1,$2)");
       expr = expr.replace(/(\d+)\s*C\s*(\d+)/g, "combinations($1,$2)");
-      // 逆三角・双曲線関数
       expr = expr.replace(/sinh⁻¹\(/g, "asinh(").replace(/cosh⁻¹\(/g, "acosh(").replace(/tanh⁻¹\(/g, "atanh(");
       expr = expr.replace(/sin⁻¹\(/g, "__asin__(").replace(/cos⁻¹\(/g, "__acos__(").replace(/tan⁻¹\(/g, "__atan__(");
-      // 角度モード
       if (calcDeg) {
-        // 通常の三角関数（逆関数でないもの）
         expr = expr.replace(/(?<!a)sin\(/g, "sin(pi/180*");
         expr = expr.replace(/(?<!a)cos\(/g, "cos(pi/180*");
         expr = expr.replace(/(?<!a)tan\(/g, "tan(pi/180*");
-        // sinhなどは角度無関係
         expr = expr.replace(/sin\(pi\/180\*h\(/g, "sinh(");
-        // 逆三角関数→結果をdegに
         expr = expr.replace(/__asin__\(/g, "(180/pi)*asin(");
         expr = expr.replace(/__acos__\(/g, "(180/pi)*acos(");
         expr = expr.replace(/__atan__\(/g, "(180/pi)*atan(");
@@ -518,9 +622,7 @@ function App() {
         expr = expr.replace(/__acos__\(/g, "acos(");
         expr = expr.replace(/__atan__\(/g, "atan(");
       }
-      // 10^xとe^x
       expr = expr.replace(/10\^/g, "10^").replace(/EXP\(/g, "exp(");
-      // Abs→abs
       expr = expr.replace(/Abs\(/g, "abs(");
       const result = math.evaluate(expr);
       let display;
@@ -529,19 +631,83 @@ function App() {
       if (typeof result === "number" && !Number.isInteger(result)) {
         display = String(parseFloat(result.toPrecision(12)));
       }
+      // 分数変換を試みる（カシオ自然表示）
+      const frac = (typeof result === "number") ? toFraction(result) : null;
+      setCalcResultFrac(frac);
+      setCalcShowDecimal(false);
       setCalcResult(display);
       setCalcLastAns(display);
-      setCalcHistory(prev => [...prev.slice(-29), { expr: calcExpr, result: display }]);
+      setCalcHistory(prev => [...prev.slice(-29), { expr: calcExpr, result: display, frac: frac }]);
     } catch (e) {
       setCalcResult("Error: " + e.message.substring(0, 40));
+      setCalcResultFrac(null);
     }
   }
 
-  function calcClear() { setCalcExpr(""); setCalcResult(""); setCalcShift(false); setCalcHyp(false); }
-  function calcBackspace() { setCalcExpr(prev => prev.slice(0, -1)); }
-  function calcUseResult() { if (calcResult && !calcResult.startsWith("Error")) { setCalcExpr(calcResult); setCalcResult(""); } }
+  // S⇔D切り替え（カシオFORMAT相当）
+  function calcToggleSD() {
+    if (calcResultFrac) { setCalcShowDecimal(!calcShowDecimal); }
+    setCalcShift(false);
+  }
+
+  function calcClear() { setCalcExpr(""); setCalcResult(""); setCalcResultFrac(null); setCalcShowDecimal(false); setCalcShift(false); setCalcHyp(false); setCalcFracMode(false); setCalcFracNum(""); setCalcFracDen(""); setCalcMixedWhole(""); setCalcFracField("num"); setCalcMixedMode(false); }
+  function calcBackspace() {
+    if (calcFracMode) { calcFracBackspace(); return; }
+    setCalcExpr(prev => prev.slice(0, -1));
+  }
+  function calcUseResult() { if (calcResult && !calcResult.startsWith("Error")) { setCalcExpr(calcResult); setCalcResult(""); setCalcResultFrac(null); } }
   function calcMemStore(key) { try { const v = calcResult && !calcResult.startsWith("Error") ? parseFloat(calcResult) : 0; setCalcMemory(prev => ({...prev, [key]: v})); } catch {} }
   function calcMemAdd() { try { const v = calcResult && !calcResult.startsWith("Error") ? parseFloat(calcResult) : 0; setCalcMemory(prev => ({...prev, M: prev.M + v})); } catch {} }
+
+  // 式中の分数パターンを自然表示に変換するレンダラー
+  function renderExprNatural(expr) {
+    if (!expr) return "\u00a0";
+    // ((num)/(den)) パターンを検出してReact要素に
+    const parts = [];
+    let remaining = expr;
+    // 帯分数: (whole+((num)/(den)))
+    const mixedRe = /\((-?\d+(?:\.\d+)?)\+\(\((\d+(?:\.\d+)?)\)\/\((\d+(?:\.\d+)?)\)\)\)/;
+    const fracRe = /\(\((-?\d+(?:\.\d+)?)\)\/\((\d+(?:\.\d+)?)\)\)/;
+    let key = 0;
+    while (remaining) {
+      const mixedMatch = remaining.match(mixedRe);
+      const fracMatch = remaining.match(fracRe);
+      // 最初に出てくるものを処理
+      let match = null, type = null;
+      if (mixedMatch && fracMatch) {
+        if (remaining.indexOf(mixedMatch[0]) <= remaining.indexOf(fracMatch[0])) { match = mixedMatch; type = "mixed"; }
+        else { match = fracMatch; type = "frac"; }
+      } else if (mixedMatch) { match = mixedMatch; type = "mixed"; }
+      else if (fracMatch) { match = fracMatch; type = "frac"; }
+
+      if (match) {
+        const idx = remaining.indexOf(match[0]);
+        if (idx > 0) parts.push(<span key={key++}>{remaining.substring(0, idx)}</span>);
+        if (type === "mixed") {
+          parts.push(<MixedFracDisplay key={key++} whole={match[1]} n={match[2]} d={match[3]} />);
+        } else {
+          parts.push(<FracDisplay key={key++} n={match[1]} d={match[2]} />);
+        }
+        remaining = remaining.substring(idx + match[0].length);
+      } else {
+        parts.push(<span key={key++}>{remaining}</span>);
+        remaining = "";
+      }
+    }
+    return parts.length > 0 ? parts : "\u00a0";
+  }
+
+  // 結果の自然表示レンダラー
+  function renderResultNatural() {
+    if (!calcResult) return "\u00a0";
+    if (calcResult.startsWith("Error")) return calcResult;
+    if (calcResultFrac && !calcShowDecimal) {
+      const mixed = toMixedFrac(calcResultFrac);
+      // SHIFTで帯分数表示トグルは将来用、ここでは仮分数
+      return React.createElement(FracDisplay, { n: calcResultFrac.n, d: calcResultFrac.d, style: { fontSize: "22px" } });
+    }
+    return calcResult;
+  }
 
   // ── カシオ風ボタンコンポーネント ──
   const CB = ({ label, sub, onClick, bg, color, fs, title, w, active }) => (
@@ -593,20 +759,64 @@ function App() {
           </div>
         </div>
 
-        {/* 数式表示エリア（カシオ風LCDスタイル） */}
-        <div style={{ background: "#c8d1c0", padding: "10px 14px", minHeight: 72, borderBottom: "2px solid #a0aa96", margin: "0" }}>
-          <div style={{ color: "#2d3a28", fontSize: "13px", fontFamily: "'Courier New', monospace", wordBreak: "break-all", minHeight: "18px", marginBottom: "4px", textAlign: "right" }}>
-            {calcExpr || "\u00a0"}
+        {/* 数式表示エリア（カシオ風LCD + 数学自然表示） */}
+        <div style={{ background: "#c8d1c0", padding: "10px 14px", minHeight: 80, borderBottom: "2px solid #a0aa96", margin: "0" }}>
+          <div style={{ color: "#2d3a28", fontSize: "13px", fontFamily: "'Courier New', monospace", minHeight: "22px", marginBottom: "4px", textAlign: "right", display: "flex", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", gap: "1px" }}>
+            {renderExprNatural(calcExpr)}
           </div>
           <div onClick={calcUseResult} style={{
             color: (calcResult && calcResult.startsWith("Error")) ? "#b91c1c" : "#1a2716",
             fontSize: "24px", fontWeight: "bold", fontFamily: "'Courier New', monospace",
-            wordBreak: "break-all", cursor: calcResult && !calcResult.startsWith("Error") ? "pointer" : "default",
-            textAlign: "right", letterSpacing: "1px"
+            cursor: calcResult && !calcResult.startsWith("Error") ? "pointer" : "default",
+            textAlign: "right", letterSpacing: "1px", display: "flex", justifyContent: "flex-end", alignItems: "center", minHeight: "32px"
           }}>
-            {calcResult ? calcResult : "\u00a0"}
+            {renderResultNatural()}
           </div>
         </div>
+
+        {/* 分数入力パネル（テンプレート入力中のみ表示） */}
+        {calcFracMode && (
+          <div style={{ background: "#fffbeb", padding: "8px 14px", borderBottom: "1px solid #fde68a", display: "flex", alignItems: "center", gap: "10px" }}>
+            <span style={{ fontSize: "11px", color: "#92400e", fontWeight: "bold" }}>{calcMixedMode ? "帯分数" : "分数"}:</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              {calcMixedMode && (
+                <React.Fragment>
+                  <div onClick={() => setCalcFracField("whole")} style={{
+                    border: calcFracField === "whole" ? "2px solid #2563eb" : "1px solid #d1d5db", borderRadius: "4px",
+                    padding: "2px 8px", minWidth: 28, fontSize: "16px", fontFamily: "monospace", textAlign: "center",
+                    background: calcFracField === "whole" ? "#dbeafe" : "#fff", cursor: "pointer"
+                  }}>
+                    {calcMixedWhole || <span style={{ color: "#d1d5db" }}>?</span>}
+                  </div>
+                  <span style={{ fontSize: "11px", color: "#6b7280" }}>&nbsp;</span>
+                </React.Fragment>
+              )}
+              <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
+                <div onClick={() => setCalcFracField("num")} style={{
+                  border: calcFracField === "num" ? "2px solid #2563eb" : "1px solid #d1d5db", borderRadius: "4px",
+                  padding: "2px 8px", minWidth: 32, fontSize: "15px", fontFamily: "monospace", textAlign: "center",
+                  background: calcFracField === "num" ? "#dbeafe" : "#fff", cursor: "pointer"
+                }}>
+                  {calcFracNum || <span style={{ color: "#d1d5db" }}>分子</span>}
+                </div>
+                <div style={{ width: "100%", height: "2px", background: "#1e293b", margin: "2px 0" }}></div>
+                <div onClick={() => setCalcFracField("den")} style={{
+                  border: calcFracField === "den" ? "2px solid #2563eb" : "1px solid #d1d5db", borderRadius: "4px",
+                  padding: "2px 8px", minWidth: 32, fontSize: "15px", fontFamily: "monospace", textAlign: "center",
+                  background: calcFracField === "den" ? "#dbeafe" : "#fff", cursor: "pointer"
+                }}>
+                  {calcFracDen || <span style={{ color: "#d1d5db" }}>分母</span>}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: "4px", marginLeft: "auto" }}>
+              <button onClick={calcFracNextField} style={{ background: "#2563eb", color: "#fff", border: "none", borderRadius: "4px", padding: "4px 10px", fontSize: "11px", cursor: "pointer", fontWeight: "bold" }}>
+                {(calcFracField === "den" || (!calcMixedMode && calcFracField === "den")) ? "確定" : "▼次"}
+              </button>
+              <button onClick={() => { setCalcFracMode(false); setCalcMixedMode(false); setCalcFracNum(""); setCalcFracDen(""); setCalcMixedWhole(""); setCalcFracField("num"); }} style={{ background: "#fecaca", color: "#991b1b", border: "none", borderRadius: "4px", padding: "4px 8px", fontSize: "11px", cursor: "pointer" }}>取消</button>
+            </div>
+          </div>
+        )}
 
         {/* メモリ表示（トグル） */}
         {calcShowMem && (
@@ -645,19 +855,29 @@ function App() {
           <CB label={shifted ? "10ˣ" : "log"} onClick={() => calcAppend(shifted ? "10^" : "log10(")} bg="#e0e7ff" color="#4338ca" fs="11px" title={shifted ? "10のx乗" : "常用対数"} />
           <CB label={shifted ? "eˣ" : "ln"} onClick={() => calcAppend(shifted ? "EXP(" : "log(")} bg="#e0e7ff" color="#4338ca" fs="11px" title={shifted ? "eのx乗" : "自然対数"} />
           <CB label="Abs" onClick={() => calcAppend("Abs(")} bg="#e0e7ff" color="#4338ca" fs="11px" title="絶対値" />
-          <CB label={shifted ? "nCr" : "n!"} onClick={() => calcAppend(shifted ? "C" : "!")} bg="#e0e7ff" color="#4338ca" fs="11px" title={shifted ? "組み合わせ" : "階乗"} />
-          <CB label={shifted ? "nPr" : "("} onClick={() => { if (shifted) { calcAppend("P"); setCalcShift(false); setCalcHyp(false); } else calcAppend("("); }} bg="#e0e7ff" color="#4338ca" fs="12px" />
-          <CB label={shifted ? "%" : ")"} onClick={() => { if (shifted) { calcAppend("%"); setCalcShift(false); setCalcHyp(false); } else calcAppend(")"); }} bg="#e0e7ff" color="#4338ca" fs="12px" />
+          <CB label="n!" onClick={() => calcAppend("!")} bg="#e0e7ff" color="#4338ca" fs="11px" title="階乗" />
+          <CB label="nPr" onClick={() => { calcAppend("P"); setCalcShift(false); setCalcHyp(false); }} bg="#e0e7ff" color="#4338ca" fs="11px" title="順列" />
+          <CB label="nCr" onClick={() => { calcAppend("C"); setCalcShift(false); setCalcHyp(false); }} bg="#e0e7ff" color="#4338ca" fs="11px" title="組み合わせ" />
         </div>
 
-        {/* 定数行 */}
+        {/* 定数・分数・FORMAT行 */}
         <div style={{ padding: "2px 8px", display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "3px" }}>
+          <CB label={<span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", lineHeight: 0.9 }}><span style={{ fontSize: "9px" }}>□</span><span style={{ width: "12px", height: "1px", background: "currentColor" }}></span><span style={{ fontSize: "9px" }}>□</span></span>} onClick={() => { setCalcFracMode(true); setCalcMixedMode(false); setCalcFracField("num"); setCalcFracNum(""); setCalcFracDen(""); setCalcMixedWhole(""); }} bg="#fff7ed" color="#c2410c" fs="12px" title="分数入力" />
+          <CB label={<span style={{ display: "inline-flex", alignItems: "center", lineHeight: 0.9, gap: "1px" }}><span style={{ fontSize: "9px" }}>□</span><span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center" }}><span style={{ fontSize: "8px" }}>□</span><span style={{ width: "10px", height: "1px", background: "currentColor" }}></span><span style={{ fontSize: "8px" }}>□</span></span></span>} onClick={() => { setCalcFracMode(true); setCalcMixedMode(true); setCalcFracField("whole"); setCalcFracNum(""); setCalcFracDen(""); setCalcMixedWhole(""); }} bg="#fff7ed" color="#c2410c" fs="12px" title="帯分数入力" />
+          <CB label={<span style={{ fontSize: "10px" }}>S⇔D</span>} onClick={calcToggleSD} bg={calcResultFrac ? "#dbeafe" : "#f1f5f9"} color={calcResultFrac ? "#1d4ed8" : "#94a3b8"} fs="10px" title="分数⇔小数 切替" />
           <CB label="π" onClick={() => calcAppend("pi")} bg="#faf5ff" color="#7c3aed" fs="14px" />
           <CB label="e" onClick={() => calcAppend("e")} bg="#faf5ff" color="#7c3aed" fs="13px" />
           <CB label="Ans" onClick={() => calcAppend("Ans")} bg="#f0fdf4" color="#16a34a" fs="11px" title="前の結果" />
+        </div>
+
+        {/* STO・メモリ・負号行 */}
+        <div style={{ padding: "2px 8px", display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "3px" }}>
           <CB label="STO" sub="→M" onClick={() => calcMemStore("M")} bg="#fef9c3" color="#854d0e" fs="10px" title="結果をMに保存" />
-          <CB label="EE" sub="×10ⁿ" onClick={() => calcAppend("e")} bg="#faf5ff" color="#7c3aed" fs="11px" title="指数表記" />
+          <CB label="EE" sub="×10ⁿ" onClick={() => calcAppend("*10^")} bg="#faf5ff" color="#7c3aed" fs="11px" title="指数表記" />
           <CB label="(−)" onClick={() => calcAppend("(-")} bg="#faf5ff" color="#7c3aed" fs="11px" title="負号" />
+          <CB label="(" onClick={() => calcAppend("(")} bg="#e0e7ff" color="#4338ca" fs="14px" />
+          <CB label=")" onClick={() => calcAppend(")")} bg="#e0e7ff" color="#4338ca" fs="14px" />
+          <CB label="%" onClick={() => calcAppend("%")} bg="#e0e7ff" color="#4338ca" fs="13px" />
         </div>
 
         {/* メイン数字・演算子キーパッド */}
