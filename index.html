@@ -1589,14 +1589,14 @@ function App() {
 
   // ── 科目選択画面 ──
   const SUBJECTS = [
-    { id: "sekou1",  name: "一級電気工事施工管理技士", short: "一施管",    icon: "⚡", color: "#2563eb", ready: true,  desc: "R1〜R7 全問収録" },
-    { id: "denkou1", name: "第一種電気工事士",         short: "電工一種",  icon: "🔌", color: "#0891b2", ready: false, desc: "準備中" },
-    { id: "denken3", name: "第三種電気主任技術者",     short: "電験三種",  icon: "🔋", color: "#7c3aed", ready: false, desc: "準備中" },
-    { id: "kiken4",  name: "危険物取扱者 乙種第四類", short: "危険物乙4", icon: "🔥", color: "#dc2626", ready: false, desc: "準備中" },
-    { id: "shobo4",  name: "消防設備士 乙種第四類",   short: "消防乙4",   icon: "🧯", color: "#ea580c", ready: false, desc: "準備中" },
-    { id: "eiken",   name: "英語（英検準拠）",         short: "英語",      icon: "🇬🇧", color: "#059669", ready: false, desc: "準備中" },
-    { id: "topik",   name: "韓国語（TOPIK準拠）",      short: "韓国語",    icon: "🇰🇷", color: "#2563eb", ready: false, desc: "準備中" },
-    { id: "tagalog", name: "タガログ語",               short: "タガログ語", icon: "🇵🇭", color: "#0284c7", ready: false, desc: "準備中" },
+    { id: "sekou1",  name: "一級電気工事施工管理技士", short: "一施管", icon: "S1", color: "#2563eb", ready: true, desc: "R1〜R7 全問収録" },
+    { id: "denkou1", name: "第一種電気工事士", short: "電工一種", icon: "D1", color: "#0891b2", ready: false, desc: "準備中" },
+    { id: "denken3", name: "第三種電気主任技術者", short: "電験三種", icon: "D3", color: "#7c3aed", ready: false, desc: "準備中" },
+    { id: "kiken4",  name: "危険物取扱者 乙種第四類", short: "危険物乙4", icon: "K4", color: "#dc2626", ready: false, desc: "準備中" },
+    { id: "shobo4",  name: "消防設備士 乙種第四類", short: "消防乙4", icon: "B4", color: "#ea580c", ready: false, desc: "準備中" },
+    { id: "eiken",   name: "英語（英検準拠）", short: "英語", icon: "EN", color: "#059669", ready: false, desc: "準備中" },
+    { id: "topik",   name: "韓国語（TOPIK準拠）", short: "韓国語", icon: "KR", color: "#2563eb", ready: false, desc: "準備中" },
+    { id: "tagalog", name: "タガログ語", short: "タガログ語", icon: "TL", color: "#0284c7", ready: false, desc: "準備中" },
   ];
 
   function selectSubject(subj) {
@@ -1615,40 +1615,33 @@ function App() {
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "24px" }}>
-            {SUBJECTS.map(s => (
-              <button key={s.id} onClick={() => selectSubject(s)} style={{
-                background: "#ffffff",
-                border: `2px solid ${s.ready ? s.color : "#e2e8f0"}`,
-                borderRadius: "14px",
-                padding: "18px 14px",
-                cursor: s.ready ? "pointer" : "default",
-                textAlign: "left",
-                opacity: s.ready ? 1 : 0.5,
-                transition: "transform 0.1s, box-shadow 0.1s",
-                position: "relative",
-                overflow: "hidden"
-              }}
-              onMouseDown={e => { if (s.ready) e.currentTarget.style.transform = "scale(0.97)"; }}
-              onMouseUp={e => { e.currentTarget.style.transform = "scale(1)"; }}
-              onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; }}
-              >
-                <div style={{ fontSize: "28px", marginBottom: "8px" }}>{s.icon}</div>
-                <div style={{ fontSize: "14px", fontWeight: "bold", color: "#0f172a", marginBottom: "2px", lineHeight: "1.3" }}>{s.short}</div>
-                <div style={{ fontSize: "11px", color: "#64748b", lineHeight: "1.4", marginBottom: "8px" }}>{s.name}</div>
-                <div style={{ fontSize: "11px", color: s.ready ? s.color : "#94a3b8", fontWeight: s.ready ? "bold" : "normal" }}>
-                  {s.ready ? s.desc : "🔒 " + s.desc}
-                </div>
-                {s.ready && (() => {
-                  const totalQ = Object.keys(QUESTION_BANK).reduce((sum, yr) => sum + Object.keys(QUESTION_BANK[yr].questions).length, 0);
-                  const totalMB = MARUBATSU_DATA.length;
-                  return (
-                    <div style={{ marginTop: "8px", fontSize: "10px", color: "#94a3b8" }}>
-                      4択 {totalQ}問 ／ ○× {totalMB}問
-                    </div>
-                  );
-                })()}
-              </button>
-            ))}
+            {SUBJECTS.map(s => {
+              var totalInfo = "";
+              if (s.ready) {
+                var tq = Object.keys(QUESTION_BANK).reduce(function(sum, yr) { return sum + Object.keys(QUESTION_BANK[yr].questions).length; }, 0);
+                var tm = MARUBATSU_DATA.length;
+                totalInfo = "4\u629e " + tq + "\u554f \uff0f \u25cb\u00d7 " + tm + "\u554f";
+              }
+              return (
+                <button key={s.id} onClick={function() { selectSubject(s); }} style={{
+                  background: "#ffffff",
+                  border: "2px solid " + (s.ready ? s.color : "#e2e8f0"),
+                  borderRadius: "14px",
+                  padding: "18px 14px",
+                  cursor: s.ready ? "pointer" : "default",
+                  textAlign: "left",
+                  opacity: s.ready ? 1 : 0.5
+                }}>
+                  <div style={{ display: "inline-block", background: s.color, color: "#fff", fontSize: "12px", fontWeight: "bold", padding: "4px 8px", borderRadius: "6px", marginBottom: "8px" }}>{s.icon}</div>
+                  <div style={{ fontSize: "14px", fontWeight: "bold", color: "#0f172a", marginBottom: "2px", lineHeight: "1.3" }}>{s.short}</div>
+                  <div style={{ fontSize: "11px", color: "#64748b", lineHeight: "1.4", marginBottom: "8px" }}>{s.name}</div>
+                  <div style={{ fontSize: "11px", color: s.ready ? s.color : "#94a3b8", fontWeight: s.ready ? "bold" : "normal" }}>
+                    {s.ready ? s.desc : s.desc}
+                  </div>
+                  {totalInfo && <div style={{ marginTop: "8px", fontSize: "10px", color: "#94a3b8" }}>{totalInfo}</div>}
+                </button>
+              );
+            })}
           </div>
 
           <div style={{ textAlign: "center", fontSize: "11px", color: "#94a3b8" }}>

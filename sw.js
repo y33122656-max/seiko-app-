@@ -1,4 +1,4 @@
-const CACHE_NAME = 'seiko-v20';
+const CACHE_NAME = 'seiko-v21';
 const URLS_TO_CACHE = [
   './',
   './index.html',
