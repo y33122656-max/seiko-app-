@@ -22,13 +22,6 @@
   <div id="root"></div>
 <script src="fig_preset.js"></script>
   <script src="marubatsu_data.js"></script>
-<script src="qb_r01.js"></script>
-<script src="qb_r02.js"></script>
-<script src="qb_r03.js"></script>
-<script src="qb_r04.js"></script>
-<script src="qb_r05.js"></script>
-<script src="qb_r06.js"></script>
-<script src="qb_r07.js"></script>
 <script src="question_bank.js"></script>
 <script src="glossary_preset.js"></script>
   <script type="text/babel">
@@ -362,7 +355,8 @@ function App() {
   const [idx, setIdx] = useState(0);
   const [chosen, setChosen] = useState(null);
   const [showExp, setShowExp] = useState(false);
-  const [view, setView] = useState("home");
+  const [view, setView] = useState("select");
+  const [currentSubject, setCurrentSubject] = useState(null);
   const [mockMode, setMockMode] = useState(false);
 
   // 7. パスワード認証
@@ -413,8 +407,7 @@ function App() {
   const [reportEntries, setReportEntries] = useState(loadReports);
   const [diaryTab, setDiaryTab] = useState("report"); // "report" | "diary" | "history"
   const [rDate, setRDate] = useState(todayKey);
-  const emptySite = () => ({ name: "", ky: [{ danger: "", measures: [""] }] });
-  const [rSites, setRSites] = useState([emptySite()]);
+  const [rSites, setRSites] = useState([""]);
   const [glossary, setGlossary] = useState(loadGlossary);
   const [glossarySearch, setGlossarySearch] = useState("");
   const [glossaryCategory, setGlossaryCategory] = useState("all");
@@ -427,6 +420,7 @@ function App() {
   const [rTimeStart, setRTimeStart] = useState("");
   const [rTimeEnd, setRTimeEnd] = useState("");
   const [rDayOff, setRDayOff] = useState(false);
+  const [rKy, setRKy] = useState([""]);
   const [rMemo, setRMemo] = useState("");
   const [dTitle, setDTitle] = useState("");
   const [dBody, setDBody] = useState("");
@@ -822,19 +816,18 @@ function App() {
     const cats = {};
     YEAR_ORDER.forEach(yr => {
       Object.values(QUESTION_BANK[yr].questions).forEach(q => {
-        const cat = q.category || "その他";
-        if (!cats[cat]) cats[cat] = { correct: 0, answered: 0, total: 0 };
-        cats[cat].total++;
+        const cat = q.category;
+        if (!cats[cat]) cats[cat] = { correct: 0, total: 0 };
         const v = progress[`${yr}_${q.no}`];
         if (v !== undefined) {
-          cats[cat].answered++;
+          cats[cat].total++;
           if (v === true) cats[cat].correct++;
         }
       });
     });
     return Object.entries(cats)
-      .filter(([, v]) => v.answered >= 1)
-      .map(([cat, v]) => ({ cat, pct: Math.round(v.correct / v.answered * 100), answered: v.answered, correct: v.correct, total: v.total }))
+      .filter(([, v]) => v.total >= 3)
+      .map(([cat, v]) => ({ cat, pct: Math.round(v.correct / v.total * 100), total: v.total, correct: v.correct }))
       .sort((a, b) => a.pct - b.pct);
   }
 
@@ -1179,19 +1172,12 @@ function App() {
     const nowStr = todayKey();
 
     const saveReport = () => {
-      if (!rDayOff && rSites.every(s => !s.name.trim()) && !rMemo.trim()) return;
-      const sites = rSites.filter(s => s.name.trim()).map(s => ({
-        name: s.name.trim(),
-        ky: s.ky.filter(k => k.danger.trim() || (k.measures || [k.measure || ""]).some(m => m.trim())).map(k => ({
-          danger: k.danger.trim(),
-          measures: (k.measures || [k.measure || ""]).filter(m => m.trim())
-        }))
-      }));
-      const entry = { date: rDate, sites, timeStart: rDayOff ? null : rTimeStart, timeEnd: rDayOff ? null : rTimeEnd, dayOff: rDayOff, memo: rMemo, savedAt: Date.now() };
+      if (!rDayOff && rSites.every(s => !s.trim()) && !rMemo.trim()) return;
+      const entry = { date: rDate, sites: rSites.filter(s => s.trim()), timeStart: rDayOff ? null : rTimeStart, timeEnd: rDayOff ? null : rTimeEnd, dayOff: rDayOff, ky: rKy.filter(k => k.trim()), memo: rMemo, savedAt: Date.now() };
       const updated = [...reportEntries, entry];
       setReportEntries(updated);
       saveReports(updated);
-      setRSites([emptySite()]); setRTimeStart(""); setRTimeEnd(""); setRDayOff(false); setRMemo("");
+      setRSites([""]); setRTimeStart(""); setRTimeEnd(""); setRDayOff(false); setRKy([""]); setRMemo("");
       alert("日報を保存しました");
     };
 
@@ -1233,60 +1219,29 @@ function App() {
 
           {/* タブ */}
           <div style={{ display: "flex", gap: "4px", marginBottom: "16px", background: "#e2e8f0", borderRadius: "10px", padding: "3px" }}>
-            {[["report","現場日報"],["diary","学習日記"],["history","履歴"],["kyHistory","KY履歴"]].map(([k,l]) => (
+            {[["report","現場日報"],["diary","学習日記"],["history","履歴"]].map(([k,l]) => (
               <button key={k} onClick={() => setDiaryTab(k)} style={{ flex: 1, background: diaryTab === k ? "#fff" : "transparent", border: "none", padding: "8px", borderRadius: "8px", cursor: "pointer", fontSize: "13px", fontWeight: diaryTab === k ? "bold" : "normal", color: diaryTab === k ? "#1e293b" : "#64748b" }}>{l}</button>
             ))}
           </div>
 
           {/* 日付 */}
-          {(diaryTab === "report" || diaryTab === "diary") && (
           <div style={{ marginBottom: "14px" }}>
             <label style={labelSt}>日付</label>
             <input type="date" value={rDate} onChange={e => setRDate(e.target.value)} style={inputSt} />
           </div>
-          )}
 
           {diaryTab === "report" && (
             <div>
-              {/* 現場（KY付き） */}
+              {/* 現場名 */}
               <div style={sectionSt}>
                 <label style={labelSt}>現場（複数追加可）</label>
-                {rSites.map((site, si) => (
-                  <div key={si} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "12px", marginBottom: "10px" }}>
-                    <div style={{ display: "flex", gap: "6px", marginBottom: "8px" }}>
-                      <input value={site.name} onChange={e => { const u = [...rSites]; u[si] = { ...u[si], name: e.target.value }; setRSites(u); }} placeholder={`現場名 ${si+1}`} style={{ ...inputSt, flex: 1, fontWeight: "bold" }} />
-                      {rSites.length > 1 && <button onClick={() => setRSites(rSites.filter((_, j) => j !== si))} style={{ background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "6px", padding: "0 10px", cursor: "pointer", fontSize: "16px" }}>×</button>}
-                    </div>
-                    {/* この現場のKY */}
-                    <div style={{ paddingLeft: "4px" }}>
-                      <label style={{ fontSize: "12px", fontWeight: "bold", color: "#92400e", display: "block", marginBottom: "6px" }}>⚠️ KY（危険予知）</label>
-                      {site.ky.map((k, ki) => (
-                        <div key={ki} style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "8px 10px", marginBottom: "6px", position: "relative" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                            <span style={{ fontSize: "11px", fontWeight: "bold", color: "#b45309" }}>危険 {ki + 1}</span>
-                            {site.ky.length > 1 && <button onClick={() => { const u = [...rSites]; u[si] = { ...u[si], ky: u[si].ky.filter((_, j) => j !== ki) }; setRSites(u); }} style={{ background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "4px", padding: "1px 6px", cursor: "pointer", fontSize: "12px" }}>×</button>}
-                          </div>
-                          <div style={{ marginBottom: "6px" }}>
-                            <label style={{ fontSize: "11px", color: "#b45309", display: "block", marginBottom: "2px" }}>予測される危険</label>
-                            <input value={k.danger} onChange={e => { const u = [...rSites]; u[si] = { ...u[si], ky: u[si].ky.map((kk, j) => j === ki ? { ...kk, danger: e.target.value } : kk) }; setRSites(u); }} placeholder="〜して〜になる" style={{ ...inputSt, background: "#fff", borderColor: "#fbbf24", fontSize: "13px" }} />
-                          </div>
-                          <div>
-                            <label style={{ fontSize: "11px", color: "#047857", display: "block", marginBottom: "2px" }}>対策（私達はこうする）</label>
-                            {(k.measures || [k.measure || ""]).map((m, mi) => (
-                              <div key={mi} style={{ display: "flex", gap: "4px", marginBottom: "4px" }}>
-                                <input value={m} onChange={e => { const u = [...rSites]; const ms = [...(u[si].ky[ki].measures || [u[si].ky[ki].measure || ""])]; ms[mi] = e.target.value; u[si] = { ...u[si], ky: u[si].ky.map((kk, j) => j === ki ? { ...kk, measures: ms } : kk) }; setRSites(u); }} placeholder={`対策 ${mi+1}`} style={{ ...inputSt, background: "#fff", borderColor: "#34d399", fontSize: "13px", flex: 1 }} />
-                                {(k.measures || [k.measure || ""]).length > 1 && <button onClick={() => { const u = [...rSites]; const ms = [...(u[si].ky[ki].measures || [])]; ms.splice(mi, 1); u[si] = { ...u[si], ky: u[si].ky.map((kk, j) => j === ki ? { ...kk, measures: ms } : kk) }; setRSites(u); }} style={{ background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "4px", padding: "0 6px", cursor: "pointer", fontSize: "12px", flexShrink: 0 }}>×</button>}
-                              </div>
-                            ))}
-                            <button onClick={() => { const u = [...rSites]; const ms = [...(u[si].ky[ki].measures || [u[si].ky[ki].measure || ""]), ""]; u[si] = { ...u[si], ky: u[si].ky.map((kk, j) => j === ki ? { ...kk, measures: ms } : kk) }; setRSites(u); }} style={{ background: "#ecfdf5", border: "1px dashed #34d399", color: "#047857", padding: "3px 8px", borderRadius: "4px", cursor: "pointer", fontSize: "11px", width: "100%" }}>＋ 対策を追加</button>
-                          </div>
-                        </div>
-                      ))}
-                      <button onClick={() => { const u = [...rSites]; u[si] = { ...u[si], ky: [...u[si].ky, { danger: "", measures: [""] }] }; setRSites(u); }} style={{ background: "#fffbeb", border: "1px dashed #f59e0b", color: "#92400e", padding: "5px 10px", borderRadius: "6px", cursor: "pointer", fontSize: "11px", width: "100%" }}>＋ 危険項目を追加</button>
-                    </div>
+                {rSites.map((s, i) => (
+                  <div key={i} style={{ display: "flex", gap: "6px", marginBottom: "6px" }}>
+                    <input value={s} onChange={e => { const u = [...rSites]; u[i] = e.target.value; setRSites(u); }} placeholder={`現場${i+1}`} style={{ ...inputSt, flex: 1 }} />
+                    {rSites.length > 1 && <button onClick={() => setRSites(rSites.filter((_, j) => j !== i))} style={{ background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "6px", padding: "0 10px", cursor: "pointer", fontSize: "16px" }}>×</button>}
                   </div>
                 ))}
-                <button onClick={() => setRSites([...rSites, emptySite()])} style={{ background: "#f1f5f9", border: "1px dashed #94a3b8", color: "#64748b", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px", width: "100%" }}>＋ 現場を追加</button>
+                <button onClick={() => setRSites([...rSites, ""])} style={{ background: "#f1f5f9", border: "1px dashed #94a3b8", color: "#64748b", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px", width: "100%" }}>＋ 現場を追加</button>
               </div>
 
               {/* 勤務時間 */}
@@ -1305,6 +1260,17 @@ function App() {
                 )}
               </div>
 
+              {/* KY */}
+              <div style={sectionSt}>
+                <label style={labelSt}>KY（危険予知）</label>
+                {rKy.map((k, i) => (
+                  <div key={i} style={{ display: "flex", gap: "6px", marginBottom: "6px" }}>
+                    <input value={k} onChange={e => { const u = [...rKy]; u[i] = e.target.value; setRKy(u); }} placeholder={`KY ${i+1}`} style={{ ...inputSt, flex: 1 }} />
+                    {rKy.length > 1 && <button onClick={() => setRKy(rKy.filter((_, j) => j !== i))} style={{ background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "6px", padding: "0 10px", cursor: "pointer", fontSize: "16px" }}>×</button>}
+                  </div>
+                ))}
+                <button onClick={() => setRKy([...rKy, ""])} style={{ background: "#f1f5f9", border: "1px dashed #94a3b8", color: "#64748b", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px", width: "100%" }}>＋ KYを追加</button>
+              </div>
 
               {/* 仕事メモ */}
               <div style={sectionSt}>
@@ -1352,30 +1318,11 @@ function App() {
                     <div style={{ fontSize: "13px", lineHeight: "1.7" }}>
                       {entry.dayOff ? <div style={{ color: "#64748b" }}>🏠 出勤なし</div> : (
                         <>
-                          {entry.sites?.length > 0 && entry.sites.map((s, si) => (
-                            <div key={si} style={{ marginBottom: "6px" }}>
-                              {typeof s === "string" ? (
-                                <div>📍 {s}</div>
-                              ) : (
-                                <>
-                                  <div style={{ fontWeight: "bold" }}>📍 {s.name}</div>
-                                  {s.ky?.length > 0 && s.ky.map((k, ki) => (
-                                    <div key={ki} style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "6px", padding: "4px 8px", marginTop: "3px", marginLeft: "16px", fontSize: "12px" }}>
-                                      {k.danger && <div style={{ color: "#b45309" }}>⚠️ 危険：{k.danger}</div>}
-                                      {k.measures ? k.measures.map((m, mi) => (
-                                        <div key={mi} style={{ color: "#047857" }}>🛡 対策{k.measures.length > 1 ? ` ${mi+1}` : ""}：{m}</div>
-                                      )) : k.measure ? <div style={{ color: "#047857" }}>🛡 対策：{k.measure}</div> : null}
-                                    </div>
-                                  ))}
-                                </>
-                              )}
-                            </div>
-                          ))}
+                          {entry.sites?.length > 0 && <div>📍 {entry.sites.join("、")}</div>}
                           {(entry.timeStart || entry.timeEnd) && <div>⏰ {entry.timeStart || "?"} 〜 {entry.timeEnd || "?"}</div>}
                         </>
                       )}
-                      {/* 旧形式のKY（文字列配列）互換 */}
-                      {entry.ky?.length > 0 && <div style={{ marginTop: "4px" }}>⚠️ KY: {entry.ky.map(k => typeof k === "string" ? k : [k.danger, k.measure].filter(Boolean).join("→")).join(" / ")}</div>}
+                      {entry.ky?.length > 0 && <div style={{ marginTop: "4px" }}>⚠️ KY: {entry.ky.join(" / ")}</div>}
                       {entry.memo && <div style={{ marginTop: "4px", color: "#475569" }}>{entry.memo}</div>}
                     </div>
                   ) : (
@@ -1386,60 +1333,6 @@ function App() {
                   )}
                 </div>
               ))}
-            </div>
-          )}
-
-          {diaryTab === "kyHistory" && (
-            <div>
-              {(() => {
-                const kyList = [];
-                reportEntries.forEach(r => {
-                  if (r.dayOff) return;
-                  if (r.sites?.length > 0) {
-                    r.sites.forEach(s => {
-                      const siteName = typeof s === "string" ? s : s.name;
-                      if (typeof s !== "string" && s.ky?.length > 0) {
-                        s.ky.forEach(k => {
-                          if (k.danger || (k.measures && k.measures.length > 0) || k.measure) {
-                            kyList.push({ date: r.date, site: siteName, danger: k.danger || "", measures: k.measures || (k.measure ? [k.measure] : []), savedAt: r.savedAt });
-                          }
-                        });
-                      }
-                    });
-                  }
-                  if (r.ky?.length > 0) {
-                    r.ky.forEach(k => {
-                      if (typeof k === "string") {
-                        kyList.push({ date: r.date, site: "", danger: k, measures: [], savedAt: r.savedAt });
-                      } else if (k.danger || k.measure || (k.measures && k.measures.length > 0)) {
-                        kyList.push({ date: r.date, site: "", danger: k.danger || "", measures: k.measures || (k.measure ? [k.measure] : []), savedAt: r.savedAt });
-                      }
-                    });
-                  }
-                });
-                kyList.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
-
-                if (kyList.length === 0) {
-                  return <div style={{ textAlign: "center", color: "#94a3b8", padding: "40px 0" }}>KY記録がありません</div>;
-                }
-                return (
-                  <>
-                    <div style={{ fontSize: "12px", color: "#94a3b8", marginBottom: "10px" }}>全 {kyList.length} 件のKY記録</div>
-                    {kyList.map((ky, i) => (
-                      <div key={i} style={{ background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: "10px", padding: "12px 14px", marginBottom: "8px" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                          <span style={{ fontSize: "13px", color: "#92400e", fontWeight: "bold" }}>{ky.date}</span>
-                          {ky.site && <span style={{ fontSize: "12px", color: "#78716c", background: "#f5f5f4", padding: "1px 8px", borderRadius: "99px" }}>📍 {ky.site}</span>}
-                        </div>
-                        {ky.danger && <div style={{ fontSize: "13px", color: "#b45309", marginBottom: "3px" }}>⚠️ {ky.danger}</div>}
-                        {ky.measures.length > 0 && ky.measures.map((m, mi) => (
-                          <div key={mi} style={{ fontSize: "13px", color: "#047857" }}>🛡 {ky.measures.length > 1 ? `対策${mi+1}：` : ""}{m}</div>
-                        ))}
-                      </div>
-                    ))}
-                  </>
-                );
-              })()}
             </div>
           )}
         </div>
@@ -1694,12 +1587,92 @@ function App() {
     );
   }
 
+  // ── 科目選択画面 ──
+  const SUBJECTS = [
+    { id: "sekou1",  name: "一級電気工事施工管理技士", short: "一施管",    icon: "⚡", color: "#2563eb", ready: true,  desc: "R1〜R7 全問収録" },
+    { id: "denkou1", name: "第一種電気工事士",         short: "電工一種",  icon: "🔌", color: "#0891b2", ready: false, desc: "準備中" },
+    { id: "denken3", name: "第三種電気主任技術者",     short: "電験三種",  icon: "🔋", color: "#7c3aed", ready: false, desc: "準備中" },
+    { id: "kiken4",  name: "危険物取扱者 乙種第四類", short: "危険物乙4", icon: "🔥", color: "#dc2626", ready: false, desc: "準備中" },
+    { id: "shobo4",  name: "消防設備士 乙種第四類",   short: "消防乙4",   icon: "🧯", color: "#ea580c", ready: false, desc: "準備中" },
+    { id: "eiken",   name: "英語（英検準拠）",         short: "英語",      icon: "🇬🇧", color: "#059669", ready: false, desc: "準備中" },
+    { id: "topik",   name: "韓国語（TOPIK準拠）",      short: "韓国語",    icon: "🇰🇷", color: "#2563eb", ready: false, desc: "準備中" },
+    { id: "tagalog", name: "タガログ語",               short: "タガログ語", icon: "🇵🇭", color: "#0284c7", ready: false, desc: "準備中" },
+  ];
+
+  function selectSubject(subj) {
+    if (!subj.ready) return;
+    setCurrentSubject(subj.id);
+    setView("home");
+  }
+
+  if (view === "select") {
+    return (
+      <div style={{ minHeight: "100vh", background: "#F8F4E6", fontFamily: "'Noto Sans JP', sans-serif", padding: "16px" }}>
+        <div style={{ maxWidth: "720px", margin: "0 auto" }}>
+          <div style={{ textAlign: "center", marginBottom: "28px", paddingTop: "20px" }}>
+            <h1 style={{ fontSize: "26px", fontWeight: "bold", color: "#0f172a", margin: "0 0 4px" }}>SEIKO</h1>
+            <p style={{ color: "#64748b", fontSize: "14px", margin: 0 }}>知識を、力に。</p>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "24px" }}>
+            {SUBJECTS.map(s => (
+              <button key={s.id} onClick={() => selectSubject(s)} style={{
+                background: "#ffffff",
+                border: `2px solid ${s.ready ? s.color : "#e2e8f0"}`,
+                borderRadius: "14px",
+                padding: "18px 14px",
+                cursor: s.ready ? "pointer" : "default",
+                textAlign: "left",
+                opacity: s.ready ? 1 : 0.5,
+                transition: "transform 0.1s, box-shadow 0.1s",
+                position: "relative",
+                overflow: "hidden"
+              }}
+              onMouseDown={e => { if (s.ready) e.currentTarget.style.transform = "scale(0.97)"; }}
+              onMouseUp={e => { e.currentTarget.style.transform = "scale(1)"; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; }}
+              >
+                <div style={{ fontSize: "28px", marginBottom: "8px" }}>{s.icon}</div>
+                <div style={{ fontSize: "14px", fontWeight: "bold", color: "#0f172a", marginBottom: "2px", lineHeight: "1.3" }}>{s.short}</div>
+                <div style={{ fontSize: "11px", color: "#64748b", lineHeight: "1.4", marginBottom: "8px" }}>{s.name}</div>
+                <div style={{ fontSize: "11px", color: s.ready ? s.color : "#94a3b8", fontWeight: s.ready ? "bold" : "normal" }}>
+                  {s.ready ? s.desc : "🔒 " + s.desc}
+                </div>
+                {s.ready && (() => {
+                  const totalQ = Object.keys(QUESTION_BANK).reduce((sum, yr) => sum + Object.keys(QUESTION_BANK[yr].questions).length, 0);
+                  const totalMB = MARUBATSU_DATA.length;
+                  return (
+                    <div style={{ marginTop: "8px", fontSize: "10px", color: "#94a3b8" }}>
+                      4択 {totalQ}問 ／ ○× {totalMB}問
+                    </div>
+                  );
+                })()}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ textAlign: "center", fontSize: "11px", color: "#94a3b8" }}>
+            v20 — 科目は順次追加予定
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ minHeight: "100vh", background: "#F8F4E6", color: "#1e293b", fontFamily: "'Noto Sans JP', sans-serif", padding: "16px" }}>
       <div style={{ maxWidth: "720px", margin: "0 auto" }}>
-        <div style={{ marginBottom: "20px" }}>
-          <h1 style={{ fontSize: "20px", fontWeight: "bold", margin: "0 0 4px", color: "#0f172a" }}>SEIKO</h1>
-          <p style={{ color: "#64748b", fontSize: "13px", margin: 0 }}>知識を、力に。</p>
+        <div style={{ marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <h1 style={{ fontSize: "20px", fontWeight: "bold", margin: "0 0 4px", color: "#0f172a" }}>SEIKO</h1>
+            <p style={{ color: "#64748b", fontSize: "13px", margin: 0 }}>知識を、力に。</p>
+          </div>
+          {view === "home" && (
+            <button onClick={() => { flushStudyTime(); setView("select"); setCurrentSubject(null); }} style={{
+              background: "none", border: "1px solid #e2e8f0", color: "#64748b",
+              padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px"
+            }}>← 科目選択</button>
+          )}
         </div>
 
         {/* 6. 途中再開ボタン */}
@@ -1764,25 +1737,41 @@ function App() {
           const analysis = getAnalysis();
           if (analysis.length === 0) return (
             <div style={{ background: "#ffffff", borderRadius: "10px", padding: "14px", marginBottom: "20px", color: "#94a3b8", fontSize: "13px", textAlign: "center" }}>
-              📊 問題を回答するとカテゴリ別分析が表示されます
+              📊 3問以上回答するとカテゴリ別分析が表示されます
             </div>
           );
+          const weak = analysis.slice(0, 3);
+          const strong = [...analysis].sort((a,b) => b.pct - a.pct).slice(0, 3);
           return (
             <div style={{ background: "#ffffff", borderRadius: "10px", padding: "14px", marginBottom: "20px" }}>
-              <div style={{ fontWeight: "bold", fontSize: "13px", color: "#0f172a", marginBottom: "12px" }}>📊 カテゴリ別 正解率（正解率が低い順）</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                {analysis.map(({ cat, pct, correct, answered, total }) => (
-                  <div key={cat}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                      <span style={{ fontSize: "12px", color: "#1e293b", width: "120px", flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat}</span>
-                      <div style={{ flex: 1, background: "#e2e8f0", borderRadius: "3px", height: "6px" }}>
-                        <div style={{ background: pct >= 70 ? "#16a34a" : pct >= 40 ? "#f59e0b" : "#dc2626", height: "100%", borderRadius: "3px", width: `${pct}%`, transition: "width 0.3s" }} />
+              <div style={{ fontWeight: "bold", fontSize: "13px", color: "#0f172a", marginBottom: "12px" }}>📊 得意・不得意分析</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                <div>
+                  <div style={{ fontSize: "11px", color: "#dc2626", fontWeight: "bold", marginBottom: "6px" }}>⚠ 苦手カテゴリ</div>
+                  {weak.map(({ cat, pct, total }) => (
+                    <div key={cat} style={{ marginBottom: "6px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#475569", marginBottom: "2px" }}>
+                        <span>{cat}</span><span style={{ color: "#dc2626", fontWeight: "bold" }}>{pct}%</span>
                       </div>
-                      <span style={{ fontSize: "12px", color: pct >= 70 ? "#16a34a" : pct >= 40 ? "#f59e0b" : "#dc2626", fontWeight: "bold", width: "36px", textAlign: "right", flexShrink: 0 }}>{pct}%</span>
+                      <div style={{ background: "#fee2e2", borderRadius: "3px", height: "4px" }}>
+                        <div style={{ background: "#dc2626", height: "100%", borderRadius: "3px", width: `${pct}%` }} />
+                      </div>
                     </div>
-                    <div style={{ fontSize: "10px", color: "#94a3b8", textAlign: "right" }}>{correct}/{answered}問正解（全{total}問中{answered}問回答済）</div>
-                  </div>
-                ))}
+                  ))}
+                </div>
+                <div>
+                  <div style={{ fontSize: "11px", color: "#16a34a", fontWeight: "bold", marginBottom: "6px" }}>✨ 得意カテゴリ</div>
+                  {strong.map(({ cat, pct }) => (
+                    <div key={cat} style={{ marginBottom: "6px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#475569", marginBottom: "2px" }}>
+                        <span>{cat}</span><span style={{ color: "#16a34a", fontWeight: "bold" }}>{pct}%</span>
+                      </div>
+                      <div style={{ background: "#dcfce7", borderRadius: "3px", height: "4px" }}>
+                        <div style={{ background: "#16a34a", height: "100%", borderRadius: "3px", width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           );
