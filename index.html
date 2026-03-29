@@ -425,7 +425,7 @@ function App() {
   const [dTitle, setDTitle] = useState("");
   const [dBody, setDBody] = useState("");
 
-  // 関数電卓 state
+  // ── 関数電卓 state ──
   const [calcOpen, setCalcOpen] = useState(false);
   const [calcExpr, setCalcExpr] = useState("");
   const [calcResult, setCalcResult] = useState("");
@@ -433,19 +433,39 @@ function App() {
   const [calcDeg, setCalcDeg] = useState(true);
   const [calcPos, setCalcPos] = useState({ x: 20, y: 80 });
   const [calcMinimized, setCalcMinimized] = useState(false);
+  const [calcShift, setCalcShift] = useState(false);
+  const [calcHyp, setCalcHyp] = useState(false);
+  const [calcMemory, setCalcMemory] = useState({ A:0, B:0, C:0, D:0, M:0 });
+  const [calcShowMem, setCalcShowMem] = useState(false);
+  const [calcLastAns, setCalcLastAns] = useState("0");
   const dragRef = useRef(null);
   const dragStartRef = useRef(null);
+  const isDraggingRef = useRef(false);
 
-  // ドラッグ処理
+  // ── ドラッグ処理（しきい値つき・タップ/ドラッグ明確分離） ──
   function calcDragStart(e) {
+    // ボタン要素のドラッグを防ぐ
+    if (e.target.tagName === "BUTTON") return;
+    e.preventDefault();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    dragStartRef.current = { x: clientX - calcPos.x, y: clientY - calcPos.y };
+    const startX = clientX;
+    const startY = clientY;
+    const origPos = { ...calcPos };
+    isDraggingRef.current = false;
+    const THRESHOLD = 5;
+
     function onMove(ev) {
-      ev.preventDefault();
       const cx = ev.touches ? ev.touches[0].clientX : ev.clientX;
       const cy = ev.touches ? ev.touches[0].clientY : ev.clientY;
-      setCalcPos({ x: cx - dragStartRef.current.x, y: cy - dragStartRef.current.y });
+      const dx = cx - startX;
+      const dy = cy - startY;
+      if (!isDraggingRef.current && Math.abs(dx) + Math.abs(dy) < THRESHOLD) return;
+      isDraggingRef.current = true;
+      ev.preventDefault();
+      const newX = Math.max(0, Math.min(window.innerWidth - 60, origPos.x + dx));
+      const newY = Math.max(0, Math.min(window.innerHeight - 60, origPos.y + dy));
+      setCalcPos({ x: newX, y: newY });
     }
     function onEnd() {
       document.removeEventListener("mousemove", onMove);
@@ -460,136 +480,215 @@ function App() {
   }
 
   // 数式に文字追加
-  function calcAppend(s) {
-    setCalcExpr(prev => prev + s);
-  }
+  function calcAppend(s) { setCalcExpr(prev => prev + s); setCalcShift(false); setCalcHyp(false); }
 
-  // 数式評価
+  // 数式評価（カシオ準拠の変換ロジック）
   function calcEval() {
     if (!calcExpr.trim()) return;
     try {
       let expr = calcExpr;
-      // 表示用の変換: ×→*, ÷→/, ^を維持
       expr = expr.replace(/×/g, "*").replace(/÷/g, "/");
-      // 角度モード: sin,cos,tanをdeg対応に
+      expr = expr.replace(/Ans/g, "(" + calcLastAns + ")");
+      // 変数メモリ参照
+      Object.keys(calcMemory).forEach(k => {
+        expr = expr.replace(new RegExp("\\b" + k + "\\b", "g"), "(" + calcMemory[k] + ")");
+      });
+      // 階乗: 数値!をfactorial(数値)に
+      expr = expr.replace(/(\d+(?:\.\d+)?)\s*!/g, "factorial($1)");
+      // nPr → permutations(n,r)  nCr → combinations(n,r)
+      expr = expr.replace(/(\d+)\s*P\s*(\d+)/g, "permutations($1,$2)");
+      expr = expr.replace(/(\d+)\s*C\s*(\d+)/g, "combinations($1,$2)");
+      // 逆三角・双曲線関数
+      expr = expr.replace(/sinh⁻¹\(/g, "asinh(").replace(/cosh⁻¹\(/g, "acosh(").replace(/tanh⁻¹\(/g, "atanh(");
+      expr = expr.replace(/sin⁻¹\(/g, "__asin__(").replace(/cos⁻¹\(/g, "__acos__(").replace(/tan⁻¹\(/g, "__atan__(");
+      // 角度モード
       if (calcDeg) {
-        expr = expr.replace(/sin\(/g, "sin(pi/180*").replace(/cos\(/g, "cos(pi/180*").replace(/tan\(/g, "tan(pi/180*");
+        // 通常の三角関数（逆関数でないもの）
+        expr = expr.replace(/(?<!a)sin\(/g, "sin(pi/180*");
+        expr = expr.replace(/(?<!a)cos\(/g, "cos(pi/180*");
+        expr = expr.replace(/(?<!a)tan\(/g, "tan(pi/180*");
+        // sinhなどは角度無関係
+        expr = expr.replace(/sin\(pi\/180\*h\(/g, "sinh(");
+        // 逆三角関数→結果をdegに
+        expr = expr.replace(/__asin__\(/g, "(180/pi)*asin(");
+        expr = expr.replace(/__acos__\(/g, "(180/pi)*acos(");
+        expr = expr.replace(/__atan__\(/g, "(180/pi)*atan(");
+      } else {
+        expr = expr.replace(/__asin__\(/g, "asin(");
+        expr = expr.replace(/__acos__\(/g, "acos(");
+        expr = expr.replace(/__atan__\(/g, "atan(");
       }
+      // 10^xとe^x
+      expr = expr.replace(/10\^/g, "10^").replace(/EXP\(/g, "exp(");
+      // Abs→abs
+      expr = expr.replace(/Abs\(/g, "abs(");
       const result = math.evaluate(expr);
       let display;
-      if (typeof result === "object" && result.toString) {
-        display = result.toString();
-      } else {
-        display = String(result);
-      }
-      // 長すぎる小数を丸める
+      if (typeof result === "object" && result.toString) { display = result.toString(); }
+      else { display = String(result); }
       if (typeof result === "number" && !Number.isInteger(result)) {
         display = String(parseFloat(result.toPrecision(12)));
       }
       setCalcResult(display);
-      setCalcHistory(prev => [...prev.slice(-19), { expr: calcExpr, result: display }]);
+      setCalcLastAns(display);
+      setCalcHistory(prev => [...prev.slice(-29), { expr: calcExpr, result: display }]);
     } catch (e) {
       setCalcResult("Error: " + e.message.substring(0, 40));
     }
   }
 
-  function calcClear() { setCalcExpr(""); setCalcResult(""); }
+  function calcClear() { setCalcExpr(""); setCalcResult(""); setCalcShift(false); setCalcHyp(false); }
   function calcBackspace() { setCalcExpr(prev => prev.slice(0, -1)); }
   function calcUseResult() { if (calcResult && !calcResult.startsWith("Error")) { setCalcExpr(calcResult); setCalcResult(""); } }
+  function calcMemStore(key) { try { const v = calcResult && !calcResult.startsWith("Error") ? parseFloat(calcResult) : 0; setCalcMemory(prev => ({...prev, [key]: v})); } catch {} }
+  function calcMemAdd() { try { const v = calcResult && !calcResult.startsWith("Error") ? parseFloat(calcResult) : 0; setCalcMemory(prev => ({...prev, M: prev.M + v})); } catch {} }
 
-  const CB = ({ label, onClick, bg, color, fs, title }) => (
-    <button onClick={onClick} title={title || label} style={{
-      background: bg || "#f1f5f9", border: "none", borderRadius: "6px",
-      padding: "8px 2px", fontSize: fs || "14px", fontWeight: "600",
-      color: color || "#334155", cursor: "pointer", minWidth: 0,
-      transition: "background 0.1s", lineHeight: 1.2
-    }}>{label}</button>
+  // ── カシオ風ボタンコンポーネント ──
+  const CB = ({ label, sub, onClick, bg, color, fs, title, w, active }) => (
+    <button onClick={(e) => { e.stopPropagation(); onClick(); }} title={title || (typeof label === "string" ? label : "")} style={{
+      background: active ? "#3b82f6" : (bg || "#f8fafc"), border: "1px solid " + (active ? "#2563eb" : "#e2e8f0"),
+      borderRadius: "8px", padding: "6px 2px", fontSize: fs || "13px", fontWeight: "600",
+      color: active ? "#fff" : (color || "#1e293b"), cursor: "pointer", minWidth: 0,
+      transition: "all 0.1s", lineHeight: 1.1, position: "relative",
+      gridColumn: w ? "span " + w : undefined,
+      boxShadow: "0 1px 2px rgba(0,0,0,0.06)"
+    }}>{label}{sub ? <span style={{ display: "block", fontSize: "9px", color: active ? "#dbeafe" : "#94a3b8", fontWeight: "400", marginTop: "1px" }}>{sub}</span> : null}</button>
   );
 
   const CalcModal = () => {
     if (!calcOpen) return null;
     if (calcMinimized) return (
-      <div style={{ position: "fixed", left: calcPos.x, top: calcPos.y, zIndex: 9999 }}>
-        <div
-          onMouseDown={calcDragStart} onTouchStart={calcDragStart}
-          onClick={() => setCalcMinimized(false)}
-          style={{ background: "#2563eb", color: "white", borderRadius: "50%", width: 48, height: 48, display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab", boxShadow: "0 4px 12px rgba(0,0,0,0.3)", fontSize: "22px", userSelect: "none" }}>
+      <div style={{ position: "fixed", left: calcPos.x, top: calcPos.y, zIndex: 9999, touchAction: "none" }}
+        onMouseDown={calcDragStart} onTouchStart={calcDragStart}>
+        <div onClick={() => { if (!isDraggingRef.current) setCalcMinimized(false); }}
+          style={{ background: "linear-gradient(135deg, #1e293b, #334155)", color: "white", borderRadius: "14px", width: 52, height: 52, display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab", boxShadow: "0 4px 16px rgba(0,0,0,0.35)", fontSize: "22px", userSelect: "none" }}>
           🔢
         </div>
       </div>
     );
+
+    const shifted = calcShift;
+    const hyp = calcHyp;
+
     return (
       <div ref={dragRef} style={{
         position: "fixed", left: calcPos.x, top: calcPos.y, zIndex: 9999,
-        width: 340, background: "#fff", borderRadius: "12px",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.25)", overflow: "hidden", userSelect: "none"
+        width: 340, background: "#f8fafc", borderRadius: "16px",
+        boxShadow: "0 12px 40px rgba(0,0,0,0.3)", overflow: "hidden", userSelect: "none", touchAction: "none"
       }}>
-        {/* タイトルバー（ドラッグハンドル） */}
-        <div
-          onMouseDown={calcDragStart} onTouchStart={calcDragStart}
-          style={{ background: "#1e293b", padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "grab" }}>
-          <span style={{ color: "#e2e8f0", fontSize: "13px", fontWeight: "bold" }}>🔢 関数電卓</span>
-          <div style={{ display: "flex", gap: "8px" }}>
-            <button onClick={() => setCalcDeg(!calcDeg)} style={{ background: "#334155", border: "none", color: "#93c5fd", fontSize: "11px", padding: "2px 8px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}>
+        {/* タイトルバー（ドラッグ専用ハンドル） */}
+        <div onMouseDown={calcDragStart} onTouchStart={calcDragStart}
+          style={{ background: "linear-gradient(135deg, #0f172a, #1e293b)", padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "grab" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ color: "#e2e8f0", fontSize: "13px", fontWeight: "bold", letterSpacing: "0.5px" }}>CASIO風 関数電卓</span>
+            <span style={{ background: calcDeg ? "#3b82f6" : "#8b5cf6", color: "#fff", fontSize: "10px", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>
               {calcDeg ? "DEG" : "RAD"}
-            </button>
-            <button onClick={() => setCalcMinimized(true)} style={{ background: "none", border: "none", color: "#94a3b8", fontSize: "16px", cursor: "pointer" }}>—</button>
-            <button onClick={() => setCalcOpen(false)} style={{ background: "none", border: "none", color: "#94a3b8", fontSize: "16px", cursor: "pointer" }}>✕</button>
+            </span>
+            {shifted && <span style={{ background: "#f59e0b", color: "#000", fontSize: "10px", padding: "2px 5px", borderRadius: "4px", fontWeight: "bold" }}>SHIFT</span>}
+            {hyp && <span style={{ background: "#10b981", color: "#fff", fontSize: "10px", padding: "2px 5px", borderRadius: "4px", fontWeight: "bold" }}>HYP</span>}
+          </div>
+          <div style={{ display: "flex", gap: "6px" }}>
+            <button onClick={() => setCalcMinimized(true)} style={{ background: "none", border: "none", color: "#64748b", fontSize: "18px", cursor: "pointer", padding: "0 4px" }}>−</button>
+            <button onClick={() => setCalcOpen(false)} style={{ background: "none", border: "none", color: "#64748b", fontSize: "18px", cursor: "pointer", padding: "0 4px" }}>✕</button>
           </div>
         </div>
 
-        {/* 数式表示エリア */}
-        <div style={{ background: "#0f172a", padding: "8px 12px", minHeight: 70 }}>
-          <div style={{ color: "#94a3b8", fontSize: "13px", fontFamily: "monospace", wordBreak: "break-all", minHeight: "20px", marginBottom: "4px" }}>
+        {/* 数式表示エリア（カシオ風LCDスタイル） */}
+        <div style={{ background: "#c8d1c0", padding: "10px 14px", minHeight: 72, borderBottom: "2px solid #a0aa96", margin: "0" }}>
+          <div style={{ color: "#2d3a28", fontSize: "13px", fontFamily: "'Courier New', monospace", wordBreak: "break-all", minHeight: "18px", marginBottom: "4px", textAlign: "right" }}>
             {calcExpr || "\u00a0"}
           </div>
-          <div onClick={calcUseResult} style={{ color: calcResult.startsWith("Error") ? "#f87171" : "#4ade80", fontSize: "22px", fontWeight: "bold", fontFamily: "monospace", wordBreak: "break-all", cursor: calcResult && !calcResult.startsWith("Error") ? "pointer" : "default", textAlign: "right" }}>
-            {calcResult ? "= " + calcResult : "\u00a0"}
+          <div onClick={calcUseResult} style={{
+            color: (calcResult && calcResult.startsWith("Error")) ? "#b91c1c" : "#1a2716",
+            fontSize: "24px", fontWeight: "bold", fontFamily: "'Courier New', monospace",
+            wordBreak: "break-all", cursor: calcResult && !calcResult.startsWith("Error") ? "pointer" : "default",
+            textAlign: "right", letterSpacing: "1px"
+          }}>
+            {calcResult ? calcResult : "\u00a0"}
           </div>
         </div>
 
-        {/* 関数ボタン行 */}
-        <div style={{ padding: "6px 8px 2px", display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "4px" }}>
-          <CB label="sin" onClick={() => calcAppend("sin(")} bg="#e0e7ff" color="#4338ca" fs="12px" />
-          <CB label="cos" onClick={() => calcAppend("cos(")} bg="#e0e7ff" color="#4338ca" fs="12px" />
-          <CB label="tan" onClick={() => calcAppend("tan(")} bg="#e0e7ff" color="#4338ca" fs="12px" />
-          <CB label="√" onClick={() => calcAppend("sqrt(")} bg="#e0e7ff" color="#4338ca" fs="14px" title="sqrt(x)" />
-          <CB label="x²" onClick={() => calcAppend("^2")} bg="#e0e7ff" color="#4338ca" fs="12px" title="二乗" />
-          <CB label="xⁿ" onClick={() => calcAppend("^")} bg="#e0e7ff" color="#4338ca" fs="12px" title="べき乗" />
-          <CB label="log" onClick={() => calcAppend("log10(")} bg="#e0e7ff" color="#4338ca" fs="12px" title="常用対数" />
-          <CB label="ln" onClick={() => calcAppend("log(")} bg="#e0e7ff" color="#4338ca" fs="12px" title="自然対数" />
-          <CB label="π" onClick={() => calcAppend("pi")} bg="#e0e7ff" color="#4338ca" />
-          <CB label="e" onClick={() => calcAppend("e")} bg="#e0e7ff" color="#4338ca" />
-          <CB label="(" onClick={() => calcAppend("(")} bg="#e0e7ff" color="#4338ca" />
-          <CB label=")" onClick={() => calcAppend(")")} bg="#e0e7ff" color="#4338ca" />
+        {/* メモリ表示（トグル） */}
+        {calcShowMem && (
+          <div style={{ background: "#f1f5f9", padding: "6px 12px", display: "flex", gap: "6px", flexWrap: "wrap", borderBottom: "1px solid #e2e8f0" }}>
+            {Object.entries(calcMemory).map(([k, v]) => (
+              <div key={k} style={{ fontSize: "11px", fontFamily: "monospace", color: "#475569" }}>
+                <span style={{ fontWeight: "bold", color: "#2563eb" }}>{k}</span>={v}
+                <button onClick={() => calcAppend(k)} style={{ border: "none", background: "#dbeafe", fontSize: "10px", borderRadius: "3px", marginLeft: "2px", cursor: "pointer", padding: "1px 4px" }}>挿入</button>
+              </div>
+            ))}
+            <button onClick={() => setCalcShowMem(false)} style={{ fontSize: "10px", border: "none", background: "#fecaca", borderRadius: "3px", cursor: "pointer", padding: "1px 6px", color: "#991b1b" }}>閉</button>
+          </div>
+        )}
+
+        {/* モード・修飾キー行 */}
+        <div style={{ padding: "6px 8px 2px", display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "3px" }}>
+          <CB label="SHIFT" onClick={() => { setCalcShift(!calcShift); setCalcHyp(false); }} bg={shifted ? "#fbbf24" : "#fef3c7"} color={shifted ? "#000" : "#92400e"} fs="10px" active={shifted} />
+          <CB label={calcDeg ? "DEG" : "RAD"} sub="角度" onClick={() => setCalcDeg(!calcDeg)} bg="#ede9fe" color="#5b21b6" fs="10px" />
+          <CB label="HYP" onClick={() => { setCalcHyp(!hyp); setCalcShift(false); }} bg={hyp ? "#6ee7b7" : "#ecfdf5"} color={hyp ? "#000" : "#065f46"} fs="10px" active={hyp} />
+          <CB label="MEM" sub="変数" onClick={() => setCalcShowMem(!calcShowMem)} bg="#f0f9ff" color="#0369a1" fs="10px" />
+          <CB label="M+" sub="加算" onClick={calcMemAdd} bg="#f0fdf4" color="#166534" fs="10px" />
         </div>
 
-        {/* 数字・演算子ボタン */}
-        <div style={{ padding: "4px 8px 8px", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "4px" }}>
-          <CB label="AC" onClick={calcClear} bg="#fee2e2" color="#dc2626" />
-          <CB label="⌫" onClick={calcBackspace} bg="#fef3c7" color="#92400e" />
-          <CB label="%" onClick={() => calcAppend("%")} bg="#dbeafe" color="#2563eb" fs="13px" />
-          <CB label="÷" onClick={() => calcAppend("÷")} bg="#dbeafe" color="#2563eb" />
-          {["7","8","9"].map(n => <CB key={n} label={n} onClick={() => calcAppend(n)} />)}
-          <CB label="×" onClick={() => calcAppend("×")} bg="#dbeafe" color="#2563eb" />
-          {["4","5","6"].map(n => <CB key={n} label={n} onClick={() => calcAppend(n)} />)}
-          <CB label="−" onClick={() => calcAppend("-")} bg="#dbeafe" color="#2563eb" />
-          {["1","2","3"].map(n => <CB key={n} label={n} onClick={() => calcAppend(n)} />)}
-          <CB label="+" onClick={() => calcAppend("+")} bg="#dbeafe" color="#2563eb" />
-          <CB label="Ans" onClick={calcUseResult} bg="#f0fdf4" color="#16a34a" fs="12px" title="前の結果を使用" />
-          <CB label="0" onClick={() => calcAppend("0")} />
-          <CB label="." onClick={() => calcAppend(".")} />
-          <CB label="=" onClick={calcEval} bg="#2563eb" color="white" />
+        {/* 関数ボタン行1: 三角関数・逆三角関数 */}
+        <div style={{ padding: "2px 8px", display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "3px" }}>
+          <CB label={hyp ? "sinh" : (shifted ? "sin⁻¹" : "sin")} onClick={() => calcAppend(hyp ? (shifted ? "sinh⁻¹(" : "sinh(") : (shifted ? "sin⁻¹(" : "sin("))} bg="#e0e7ff" color="#4338ca" fs="11px" />
+          <CB label={hyp ? "cosh" : (shifted ? "cos⁻¹" : "cos")} onClick={() => calcAppend(hyp ? (shifted ? "cosh⁻¹(" : "cosh(") : (shifted ? "cos⁻¹(" : "cos("))} bg="#e0e7ff" color="#4338ca" fs="11px" />
+          <CB label={hyp ? "tanh" : (shifted ? "tan⁻¹" : "tan")} onClick={() => calcAppend(hyp ? (shifted ? "tanh⁻¹(" : "tanh(") : (shifted ? "tan⁻¹(" : "tan("))} bg="#e0e7ff" color="#4338ca" fs="11px" />
+          <CB label={shifted ? "x³" : "x²"} onClick={() => calcAppend(shifted ? "^3" : "^2")} bg="#e0e7ff" color="#4338ca" fs="12px" />
+          <CB label={shifted ? "ˣ√" : "√"} onClick={() => calcAppend(shifted ? "nthRoot(" : "sqrt(")} bg="#e0e7ff" color="#4338ca" fs="13px" title={shifted ? "n乗根" : "平方根"} />
+          <CB label={shifted ? "x⁻¹" : "xⁿ"} onClick={() => calcAppend(shifted ? "^(-1)" : "^")} bg="#e0e7ff" color="#4338ca" fs="12px" title={shifted ? "逆数" : "べき乗"} />
         </div>
 
-        {/* 履歴（折りたたみ） */}
+        {/* 関数ボタン行2: 対数・定数・特殊関数 */}
+        <div style={{ padding: "2px 8px", display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "3px" }}>
+          <CB label={shifted ? "10ˣ" : "log"} onClick={() => calcAppend(shifted ? "10^" : "log10(")} bg="#e0e7ff" color="#4338ca" fs="11px" title={shifted ? "10のx乗" : "常用対数"} />
+          <CB label={shifted ? "eˣ" : "ln"} onClick={() => calcAppend(shifted ? "EXP(" : "log(")} bg="#e0e7ff" color="#4338ca" fs="11px" title={shifted ? "eのx乗" : "自然対数"} />
+          <CB label="Abs" onClick={() => calcAppend("Abs(")} bg="#e0e7ff" color="#4338ca" fs="11px" title="絶対値" />
+          <CB label={shifted ? "nCr" : "n!"} onClick={() => calcAppend(shifted ? "C" : "!")} bg="#e0e7ff" color="#4338ca" fs="11px" title={shifted ? "組み合わせ" : "階乗"} />
+          <CB label={shifted ? "nPr" : "("} onClick={() => { if (shifted) { calcAppend("P"); setCalcShift(false); setCalcHyp(false); } else calcAppend("("); }} bg="#e0e7ff" color="#4338ca" fs="12px" />
+          <CB label={shifted ? "%" : ")"} onClick={() => { if (shifted) { calcAppend("%"); setCalcShift(false); setCalcHyp(false); } else calcAppend(")"); }} bg="#e0e7ff" color="#4338ca" fs="12px" />
+        </div>
+
+        {/* 定数行 */}
+        <div style={{ padding: "2px 8px", display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "3px" }}>
+          <CB label="π" onClick={() => calcAppend("pi")} bg="#faf5ff" color="#7c3aed" fs="14px" />
+          <CB label="e" onClick={() => calcAppend("e")} bg="#faf5ff" color="#7c3aed" fs="13px" />
+          <CB label="Ans" onClick={() => calcAppend("Ans")} bg="#f0fdf4" color="#16a34a" fs="11px" title="前の結果" />
+          <CB label="STO" sub="→M" onClick={() => calcMemStore("M")} bg="#fef9c3" color="#854d0e" fs="10px" title="結果をMに保存" />
+          <CB label="EE" sub="×10ⁿ" onClick={() => calcAppend("e")} bg="#faf5ff" color="#7c3aed" fs="11px" title="指数表記" />
+          <CB label="(−)" onClick={() => calcAppend("(-")} bg="#faf5ff" color="#7c3aed" fs="11px" title="負号" />
+        </div>
+
+        {/* メイン数字・演算子キーパッド */}
+        <div style={{ padding: "4px 8px 6px", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "4px" }}>
+          <CB label="AC" onClick={calcClear} bg="#fee2e2" color="#dc2626" fs="13px" />
+          <CB label="DEL" onClick={calcBackspace} bg="#fef3c7" color="#92400e" fs="12px" />
+          <CB label="÷" onClick={() => calcAppend("÷")} bg="#dbeafe" color="#1d4ed8" fs="16px" />
+          <CB label="×" onClick={() => calcAppend("×")} bg="#dbeafe" color="#1d4ed8" fs="16px" />
+
+          {["7","8","9"].map(n => <CB key={n} label={n} onClick={() => calcAppend(n)} fs="16px" bg="#fff" />)}
+          <CB label="−" onClick={() => calcAppend("-")} bg="#dbeafe" color="#1d4ed8" fs="18px" />
+
+          {["4","5","6"].map(n => <CB key={n} label={n} onClick={() => calcAppend(n)} fs="16px" bg="#fff" />)}
+          <CB label="+" onClick={() => calcAppend("+")} bg="#dbeafe" color="#1d4ed8" fs="18px" />
+
+          {["1","2","3"].map(n => <CB key={n} label={n} onClick={() => calcAppend(n)} fs="16px" bg="#fff" />)}
+          <CB label="=" onClick={calcEval} bg="#1d4ed8" color="white" fs="18px" />
+
+          <CB label="0" onClick={() => calcAppend("0")} w="2" fs="16px" bg="#fff" />
+          <CB label="." onClick={() => calcAppend(".")} fs="16px" bg="#fff" />
+          <CB label="EXE" sub="実行" onClick={calcEval} bg="#1e40af" color="white" fs="12px" />
+        </div>
+
+        {/* 計算履歴 */}
         {calcHistory.length > 0 && (
-          <details style={{ padding: "0 8px 8px" }}>
+          <details style={{ padding: "0 10px 8px" }}>
             <summary style={{ fontSize: "11px", color: "#94a3b8", cursor: "pointer", padding: "4px 0" }}>計算履歴（{calcHistory.length}件）</summary>
-            <div style={{ maxHeight: 100, overflowY: "auto", fontSize: "11px", fontFamily: "monospace" }}>
+            <div style={{ maxHeight: 120, overflowY: "auto", fontSize: "11px", fontFamily: "monospace" }}>
               {calcHistory.slice().reverse().map((h, i) => (
-                <div key={i} onClick={() => { setCalcExpr(h.result); setCalcResult(""); }} style={{ padding: "2px 4px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", color: "#475569" }}>
-                  {h.expr} = <span style={{ color: "#2563eb", fontWeight: "bold" }}>{h.result}</span>
+                <div key={i} onClick={() => { setCalcExpr(h.result); setCalcResult(""); }} style={{ padding: "3px 4px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", color: "#475569" }}>
+                  {h.expr} = <span style={{ color: "#1d4ed8", fontWeight: "bold" }}>{h.result}</span>
                 </div>
               ))}
             </div>
