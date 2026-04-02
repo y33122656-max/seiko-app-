@@ -390,6 +390,49 @@ function App() {
       }
     });
   }, []);
+
+  // ── 天気・ニュース取得 ──
+  const WMO_WEATHER = { 0:"☀️快晴",1:"🌤️晴れ",2:"⛅曇りがち",3:"☁️曇り",45:"🌫️霧",48:"🌫️霧氷",51:"🌦️小雨",53:"🌧️雨",55:"🌧️強い雨",61:"🌧️小雨",63:"🌧️雨",65:"🌧️大雨",71:"🌨️小雪",73:"🌨️雪",75:"🌨️大雪",80:"🌦️にわか雨",81:"🌧️にわか雨",82:"⛈️激しいにわか雨",95:"⛈️雷雨",96:"⛈️雹を伴う雷雨",99:"⛈️激しい雷雨" };
+  function wmoLabel(code) { return WMO_WEATHER[code] || "---"; }
+  function fetchWeather(lat, lon) {
+    fetch("https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon + "&current=temperature_2m,weathercode&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=Asia%2FTokyo&forecast_days=3")
+      .then(function(r){ return r.json(); })
+      .then(function(d){ setWeather(d); })
+      .catch(function(){});
+  }
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        function(pos) {
+          var la = pos.coords.latitude;
+          var lo = pos.coords.longitude;
+          setGeoLat(la);
+          setGeoLon(lo);
+          setGeoName("現在地");
+          fetchWeather(la, lo);
+          // 逆ジオコーディングで地名取得
+          fetch("https://geocoding-api.open-meteo.com/v1/search?name=&latitude=" + la + "&longitude=" + lo + "&count=1&language=ja")
+            .catch(function(){});
+        },
+        function() {
+          // 位置情報拒否時 → 浜松デフォルト
+          fetchWeather(34.71, 137.73);
+        },
+        { timeout: 5000 }
+      );
+    } else {
+      fetchWeather(34.71, 137.73);
+    }
+    var rssUrl = encodeURIComponent("https://news.google.com/rss/search?q=電気工事+建設&hl=ja&gl=JP&ceid=JP:ja");
+    setNewsLoading(true);
+    fetch("https://api.rss2json.com/v1/api.json?rss_url=" + rssUrl)
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d.items) setNewsItems(d.items.slice(0, 5));
+        setNewsLoading(false);
+      })
+      .catch(function(){ setNewsLoading(false); });
+  }, []);
   const [figZoom, setFigZoom] = useState(null); // { "R7_1": "data:image/..." }
   const [aiExpCache, setAiExpCache] = useState({}); // AI詳細解説キャッシュ
   const [aiExpLoading, setAiExpLoading] = useState(false);
@@ -417,6 +460,12 @@ function App() {
   const [glossaryNewCat, setGlossaryNewCat] = useState("");
   const [glossaryNewBody, setGlossaryNewBody] = useState("");
   const [glossaryDetail, setGlossaryDetail] = useState(null);
+  const [weather, setWeather] = useState(null);
+  const [newsItems, setNewsItems] = useState([]);
+  const [newsLoading, setNewsLoading] = useState(true);
+  const [geoLat, setGeoLat] = useState(34.71);
+  const [geoLon, setGeoLon] = useState(137.73);
+  const [geoName, setGeoName] = useState("浜松");
   const [rTimeStart, setRTimeStart] = useState("");
   const [rTimeEnd, setRTimeEnd] = useState("");
   const [rDayOff, setRDayOff] = useState(false);
@@ -424,6 +473,27 @@ function App() {
   const [rMemo, setRMemo] = useState("");
   const [dTitle, setDTitle] = useState("");
   const [dBody, setDBody] = useState("");
+
+  // ── スケジュール（カウントダウン）──
+  const SCHEDULE_KEY = "seiko_schedules_v1";
+  function loadSchedules() { try { return JSON.parse(localStorage.getItem(SCHEDULE_KEY)) || []; } catch { return []; } }
+  function saveSchedules(s) { try { localStorage.setItem(SCHEDULE_KEY, JSON.stringify(s)); } catch {} setSchedules(s); }
+  const [schedules, setSchedules] = useState(loadSchedules);
+  const [scheduleEditing, setScheduleEditing] = useState(false);
+  const [schedNewName, setSchedNewName] = useState("");
+  const [schedNewDate, setSchedNewDate] = useState("");
+
+  // ── 天気・ニュース折りたたみ ──
+  const [weatherOpen, setWeatherOpen] = useState(false);
+  const [newsOpen, setNewsOpen] = useState(false);
+
+  // ── HTMLエンティティデコード ──
+  function decodeHtml(html) {
+    try {
+      var doc = new DOMParser().parseFromString(html, "text/html");
+      return doc.body.textContent || html;
+    } catch(e) { return html; }
+  }
 
   // ── 関数電卓 state ──
   const [calcOpen, setCalcOpen] = useState(false);
@@ -1925,46 +1995,216 @@ function App() {
   }
 
   if (view === "select") {
+    var dayNames = ["日","月","火","水","木","金","土"];
+    var fmtSec = function(sec) {
+      var h = Math.floor(sec / 3600);
+      var m = Math.floor((sec % 3600) / 60);
+      var s = sec % 60;
+      return h > 0 ? h + "時間" + m + "分" : m > 0 ? m + "分" + s + "秒" : s + "秒";
+    };
+    var todaySec = studyTime[todayKey()] || 0;
+    var totalSec = Object.values(studyTime).reduce(function(a,b){ return a+b; }, 0);
+    // 直近7日分
+    var last7 = [];
+    for (var di = 6; di >= 0; di--) {
+      var dd = new Date(); dd.setDate(dd.getDate() - di);
+      var dk = dd.getFullYear() + "-" + String(dd.getMonth()+1).padStart(2,"0") + "-" + String(dd.getDate()).padStart(2,"0");
+      last7.push({ key: dk, sec: studyTime[dk] || 0, label: dayNames[dd.getDay()] });
+    }
+    var maxSec7 = Math.max.apply(null, last7.map(function(d){ return d.sec; }));
+    if (maxSec7 < 1) maxSec7 = 1;
+    var readySubjects = SUBJECTS.filter(function(s){ return s.ready; });
+    var futureSubjects = SUBJECTS.filter(function(s){ return !s.ready; });
     return (
       <div style={{ minHeight: "100vh", background: "#F8F4E6", fontFamily: "'Noto Sans JP', sans-serif", padding: "16px" }}>
         <div style={{ maxWidth: "720px", margin: "0 auto" }}>
-          <div style={{ textAlign: "center", marginBottom: "28px", paddingTop: "20px" }}>
+          <div style={{ textAlign: "center", marginBottom: "14px", paddingTop: "16px" }}>
             <h1 style={{ fontSize: "26px", fontWeight: "bold", color: "#0f172a", margin: "0 0 4px" }}>SEIKO</h1>
             <p style={{ color: "#64748b", fontSize: "14px", margin: 0 }}>知識を、力に。</p>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "24px" }}>
-            {SUBJECTS.map(s => {
-              var totalInfo = "";
-              if (s.ready) {
-                var tq = Object.keys(QUESTION_BANK).reduce(function(sum, yr) { return sum + Object.keys(QUESTION_BANK[yr].questions).length; }, 0);
-                var tm = MARUBATSU_DATA.length;
-                totalInfo = "4\u629e " + tq + "\u554f \uff0f \u25cb\u00d7 " + tm + "\u554f";
-              }
-              return (
-                <button key={s.id} onClick={function() { selectSubject(s); }} style={{
-                  background: "#ffffff",
-                  border: "2px solid " + (s.ready ? s.color : "#e2e8f0"),
-                  borderRadius: "14px",
-                  padding: "18px 14px",
-                  cursor: s.ready ? "pointer" : "default",
-                  textAlign: "left",
-                  opacity: s.ready ? 1 : 0.5
-                }}>
-                  <div style={{ display: "inline-block", background: s.color, color: "#fff", fontSize: "12px", fontWeight: "bold", padding: "4px 8px", borderRadius: "6px", marginBottom: "8px" }}>{s.icon}</div>
-                  <div style={{ fontSize: "14px", fontWeight: "bold", color: "#0f172a", marginBottom: "2px", lineHeight: "1.3" }}>{s.short}</div>
-                  <div style={{ fontSize: "11px", color: "#64748b", lineHeight: "1.4", marginBottom: "8px" }}>{s.name}</div>
-                  <div style={{ fontSize: "11px", color: s.ready ? s.color : "#94a3b8", fontWeight: s.ready ? "bold" : "normal" }}>
-                    {s.ready ? s.desc : s.desc}
+          {/* ── 勉強時間サマリー ── */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
+            <div style={{ background: "#ffffff", borderRadius: "10px", padding: "12px", textAlign: "center" }}>
+              <div style={{ fontSize: "11px", color: "#94a3b8", marginBottom: "4px" }}>今日</div>
+              <div style={{ fontSize: "20px", fontWeight: "bold", color: todaySec > 0 ? "#2563eb" : "#cbd5e1" }}>
+                {todaySec > 0 ? fmtSec(todaySec) : "---"}
+              </div>
+            </div>
+            <div style={{ background: "#ffffff", borderRadius: "10px", padding: "12px", textAlign: "center" }}>
+              <div style={{ fontSize: "11px", color: "#94a3b8", marginBottom: "4px" }}>累計</div>
+              <div style={{ fontSize: "20px", fontWeight: "bold", color: totalSec > 0 ? "#7c3aed" : "#cbd5e1" }}>
+                {totalSec > 0 ? fmtSec(totalSec) : "---"}
+              </div>
+            </div>
+          </div>
+
+          {/* ── 直近7日グラフ ── */}
+          <div style={{ background: "#ffffff", borderRadius: "10px", padding: "12px 14px", marginBottom: "14px" }}>
+            <div style={{ fontSize: "11px", color: "#94a3b8", marginBottom: "8px" }}>直近7日間</div>
+            <div style={{ display: "flex", gap: "4px", alignItems: "flex-end", height: "48px" }}>
+              {last7.map(function(d) {
+                var pct = Math.max(d.sec / maxSec7 * 100, d.sec > 0 ? 8 : 0);
+                var isToday = d.key === todayKey();
+                return (
+                  <div key={d.key} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
+                    <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+                      <div style={{ width: "70%", background: isToday ? "#2563eb" : "#93c5fd", borderRadius: "3px 3px 0 0", height: pct + "%", minHeight: d.sec > 0 ? "3px" : "0", transition: "height 0.3s" }} />
+                    </div>
+                    <div style={{ fontSize: "9px", color: isToday ? "#2563eb" : "#94a3b8", marginTop: "2px", fontWeight: isToday ? "bold" : "normal" }}>{d.label}</div>
                   </div>
-                  {totalInfo && <div style={{ marginTop: "8px", fontSize: "10px", color: "#94a3b8" }}>{totalInfo}</div>}
-                </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ── スケジュール（カウントダウン） ── */}
+          <div style={{ background: "#ffffff", borderRadius: "10px", padding: "14px 16px", marginBottom: "14px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: schedules.length > 0 || scheduleEditing ? "10px" : "0" }}>
+              <div style={{ fontSize: "13px", fontWeight: "bold", color: "#0f172a" }}>📅 スケジュール</div>
+              <button onClick={function(){ setScheduleEditing(!scheduleEditing); setSchedNewName(""); setSchedNewDate(""); }}
+                style={{ background: "none", border: "none", color: "#2563eb", fontSize: "12px", cursor: "pointer" }}>
+                {scheduleEditing ? "閉じる" : "＋ 追加"}
+              </button>
+            </div>
+            {scheduleEditing && (
+              <div style={{ display: "flex", gap: "6px", marginBottom: "10px", flexWrap: "wrap" }}>
+                <input value={schedNewName} onChange={function(e){ setSchedNewName(e.target.value); }} placeholder="例: 一施管 一次" style={{ flex: "1 1 100px", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "6px 8px", fontSize: "12px" }} />
+                <input type="date" value={schedNewDate} onChange={function(e){ setSchedNewDate(e.target.value); }} style={{ border: "1px solid #e2e8f0", borderRadius: "6px", padding: "6px 8px", fontSize: "12px" }} />
+                <button onClick={function(){
+                  if (!schedNewName.trim() || !schedNewDate) return;
+                  var ns = schedules.concat([{ id: Date.now(), name: schedNewName.trim(), date: schedNewDate }]);
+                  saveSchedules(ns);
+                  setSchedNewName(""); setSchedNewDate(""); setScheduleEditing(false);
+                }} style={{ background: "#2563eb", color: "#fff", border: "none", borderRadius: "6px", padding: "6px 12px", fontSize: "12px", cursor: "pointer" }}>追加</button>
+              </div>
+            )}
+            {schedules.length === 0 && !scheduleEditing && (
+              <div style={{ color: "#94a3b8", fontSize: "12px", marginTop: "6px" }}>試験日を登録するとカウントダウンが表示されます</div>
+            )}
+            {schedules.map(function(sc) {
+              var diff = Math.ceil((new Date(sc.date).getTime() - new Date().setHours(0,0,0,0)) / 86400000);
+              var isPast = diff < 0;
+              var isClose = diff >= 0 && diff <= 30;
+              return (
+                <div key={sc.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: "1px solid #f1f5f9" }}>
+                  <div>
+                    <div style={{ fontSize: "13px", color: "#1e293b", fontWeight: "500" }}>{sc.name}</div>
+                    <div style={{ fontSize: "10px", color: "#94a3b8" }}>{sc.date}</div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    {isPast ? (
+                      <span style={{ fontSize: "13px", color: "#94a3b8" }}>終了</span>
+                    ) : (
+                      <span style={{ fontSize: "18px", fontWeight: "bold", color: isClose ? "#dc2626" : "#2563eb" }}>
+                        {diff === 0 ? "当日" : "あと" + diff + "日"}
+                      </span>
+                    )}
+                    {scheduleEditing && (
+                      <button onClick={function(){ saveSchedules(schedules.filter(function(s){ return s.id !== sc.id; })); }}
+                        style={{ background: "none", border: "none", color: "#dc2626", fontSize: "14px", cursor: "pointer", padding: "2px" }}>✕</button>
+                    )}
+                  </div>
+                </div>
               );
             })}
           </div>
 
-          <div style={{ textAlign: "center", fontSize: "11px", color: "#94a3b8" }}>
-            v20 — 科目は順次追加予定
+          {/* ── 科目選択 ── */}
+          <div style={{ marginBottom: "14px" }}>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              {readySubjects.map(function(s) {
+                return (
+                  <button key={s.id} onClick={function() {
+                    setCurrentSubject(s.id);
+                    setView("home");
+                  }} style={{
+                    display: "flex", alignItems: "center", gap: "6px",
+                    background: "#ffffff", color: "#1e293b",
+                    border: "1.5px solid " + s.color,
+                    padding: "10px 16px", borderRadius: "10px", cursor: "pointer",
+                    fontSize: "13px", fontWeight: "bold", flex: "1 1 auto", justifyContent: "center"
+                  }}>
+                    <span style={{ background: s.color, color: "#fff", fontSize: "10px", fontWeight: "bold", padding: "2px 6px", borderRadius: "4px" }}>{s.icon}</span>
+                    {s.short}
+                  </button>
+                );
+              })}
+            </div>
+            {futureSubjects.length > 0 && (
+              <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "8px" }}>
+                準備中: {futureSubjects.map(function(s){ return s.short; }).join("、")}
+              </div>
+            )}
+          </div>
+
+          {/* ── 天気予報（折りたたみ） ── */}
+          <div style={{ background: "#ffffff", borderRadius: "12px", marginBottom: "10px", overflow: "hidden" }}>
+            <button onClick={function(){ setWeatherOpen(!weatherOpen); }}
+              style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", background: "none", border: "none", cursor: "pointer", fontSize: "13px", fontWeight: "bold", color: "#0f172a" }}>
+              <span>🌤 {geoName}の天気{weather && weather.current ? "　" + Math.round(weather.current.temperature_2m) + "°C " + wmoLabel(weather.current.weathercode) : ""}</span>
+              <span style={{ fontSize: "11px", color: "#94a3b8" }}>{weatherOpen ? "▲" : "▼"}</span>
+            </button>
+            {weatherOpen && weather && weather.current && weather.daily && (
+              <div style={{ padding: "0 16px 14px" }}>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  {weather.daily.time.map(function(t, i) {
+                    var d = new Date(t);
+                    var label = i === 0 ? "今日" : i === 1 ? "明日" : dayNames[d.getDay()];
+                    return (
+                      <div key={t} style={{ flex: 1, background: "#f8fafc", borderRadius: "8px", padding: "8px 4px", textAlign: "center" }}>
+                        <div style={{ fontSize: "11px", color: "#64748b", marginBottom: "4px" }}>{label}</div>
+                        <div style={{ fontSize: "11px", marginBottom: "2px" }}>{wmoLabel(weather.daily.weathercode[i]).slice(0, 2)}</div>
+                        <div style={{ fontSize: "12px" }}>
+                          <span style={{ color: "#dc2626", fontWeight: "bold" }}>{Math.round(weather.daily.temperature_2m_max[i])}</span>
+                          <span style={{ color: "#94a3b8" }}> / </span>
+                          <span style={{ color: "#2563eb" }}>{Math.round(weather.daily.temperature_2m_min[i])}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── ニュース（折りたたみ＋HTMLデコード） ── */}
+          <div style={{ background: "#ffffff", borderRadius: "12px", marginBottom: "20px", overflow: "hidden" }}>
+            <button onClick={function(){ setNewsOpen(!newsOpen); }}
+              style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", background: "none", border: "none", cursor: "pointer", fontSize: "13px", fontWeight: "bold", color: "#0f172a" }}>
+              <span>📰 建設・電気工事ニュース</span>
+              <span style={{ fontSize: "11px", color: "#94a3b8" }}>{newsOpen ? "▲" : "▼"}</span>
+            </button>
+            {newsOpen && (
+              <div style={{ padding: "0 16px 14px" }}>
+                {newsLoading ? (
+                  <div style={{ color: "#94a3b8", fontSize: "13px" }}>読み込み中...</div>
+                ) : newsItems.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                    {newsItems.map(function(item, i) {
+                      var pubDate = "";
+                      try { var dd2 = new Date(item.pubDate); pubDate = (dd2.getMonth()+1) + "/" + dd2.getDate(); } catch(e){}
+                      var title = decodeHtml(item.title);
+                      return (
+                        <a key={i} href={item.link} target="_blank" rel="noopener noreferrer"
+                          style={{ display: "block", padding: "8px 10px", background: "#f8fafc", borderRadius: "8px", textDecoration: "none", color: "#1e293b" }}>
+                          <div style={{ fontSize: "13px", lineHeight: "1.5", marginBottom: "2px" }}>
+                            {title.length > 60 ? title.slice(0, 60) + "…" : title}
+                          </div>
+                          <div style={{ fontSize: "10px", color: "#94a3b8" }}>{pubDate}{item.author ? " — " + item.author : ""}</div>
+                        </a>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ color: "#94a3b8", fontSize: "13px" }}>ニュースを取得できませんでした</div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div style={{ textAlign: "center", fontSize: "11px", color: "#94a3b8", marginTop: "12px" }}>
+            v23 — 科目は順次追加予定
           </div>
         </div>
       </div>
@@ -1974,16 +2214,43 @@ function App() {
   return (
     <div style={{ minHeight: "100vh", background: "#F8F4E6", color: "#1e293b", fontFamily: "'Noto Sans JP', sans-serif", padding: "16px" }}>
       <div style={{ maxWidth: "720px", margin: "0 auto" }}>
-        <div style={{ marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <h1 style={{ fontSize: "20px", fontWeight: "bold", margin: "0 0 4px", color: "#0f172a" }}>SEIKO</h1>
-            <p style={{ color: "#64748b", fontSize: "13px", margin: 0 }}>知識を、力に。</p>
+        <div style={{ marginBottom: "20px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+            <div>
+              <h1 style={{ fontSize: "20px", fontWeight: "bold", margin: "0 0 4px", color: "#0f172a" }}>SEIKO</h1>
+              <p style={{ color: "#64748b", fontSize: "13px", margin: 0 }}>知識を、力に。</p>
+            </div>
+            {view === "home" && (
+              <button onClick={() => { flushStudyTime(); setView("select"); }} style={{
+                background: "none", border: "1px solid #e2e8f0", color: "#64748b",
+                padding: "5px 10px", borderRadius: "6px", cursor: "pointer", fontSize: "11px"
+              }}>🏠 ホーム</button>
+            )}
           </div>
           {view === "home" && (
-            <button onClick={() => { flushStudyTime(); setView("select"); setCurrentSubject(null); }} style={{
-              background: "none", border: "1px solid #e2e8f0", color: "#64748b",
-              padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px"
-            }}>← 科目選択</button>
+            <div style={{ display: "flex", gap: "6px", overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: "4px" }}>
+              {SUBJECTS.map(function(s) {
+                var isCurrent = currentSubject === s.id;
+                return (
+                  <button key={s.id} onClick={function() {
+                    if (!s.ready) return;
+                    if (!isCurrent) { flushStudyTime(); setCurrentSubject(s.id); }
+                  }} style={{
+                    display: "flex", alignItems: "center", gap: "5px",
+                    background: isCurrent ? s.color : "#ffffff",
+                    color: isCurrent ? "#ffffff" : (s.ready ? "#475569" : "#cbd5e1"),
+                    border: "1.5px solid " + (isCurrent ? s.color : (s.ready ? "#e2e8f0" : "#f1f5f9")),
+                    padding: "6px 12px", borderRadius: "99px", cursor: s.ready ? "pointer" : "default",
+                    fontSize: "12px", fontWeight: isCurrent ? "bold" : "normal",
+                    whiteSpace: "nowrap", flexShrink: 0,
+                    opacity: s.ready ? 1 : 0.5
+                  }}>
+                    <span style={{ background: isCurrent ? "rgba(255,255,255,0.25)" : s.color, color: isCurrent ? "#fff" : "#fff", fontSize: "9px", fontWeight: "bold", padding: "2px 5px", borderRadius: "4px" }}>{s.icon}</span>
+                    {s.short}
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
 
